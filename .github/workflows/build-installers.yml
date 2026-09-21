@@ -1,0 +1,120 @@
+name: Build installers
+
+# 双平台原生打包：macOS 在 macos runner 上产 dmg/zip，Windows 在 windows runner 上产 nsis 安装包。
+# 不用在 mac 上交叉打 Windows —— 那需要 x86_64 wine，Apple Silicon 上跑不起来。
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "版本号（可选，默认取 package.json）"
+        required: false
+        type: string
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  mac:
+    name: macOS (arm64)
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.2
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24.14.0"
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Bundle (mac arm64)
+        run: pnpm --filter @zcode/desktop bundle --os mac --arch arm64
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: zcode-macos-arm64
+          path: |
+            packages/desktop/dist/*.dmg
+            packages/desktop/dist/*.zip
+          if-no-files-found: error
+
+  mac-x64:
+    name: macOS (x64)
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.2
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24.14.0"
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Bundle (mac x64)
+        run: pnpm --filter @zcode/desktop bundle --os mac --arch x64
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: zcode-macos-x64
+          path: |
+            packages/desktop/dist/*.dmg
+            packages/desktop/dist/*.zip
+          if-no-files-found: error
+
+  windows:
+    name: Windows (x64)
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.33.2
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "24.14.0"
+          cache: pnpm
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile
+
+      - name: Bundle (win x64)
+        run: pnpm --filter @zcode/desktop bundle --os win --arch x64
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: zcode-windows-x64
+          path: |
+            packages/desktop/dist/*.exe
+          if-no-files-found: error
+
+  release:
+    name: Attach to release
+    needs: [mac, mac-x64, windows]
+    if: startsWith(github.ref, 'refs/tags/v')
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: dist
+
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: dist/**/*
+          draft: false
+          generate_release_notes: true
