@@ -690,7 +690,11 @@ export function ModelProviderSectionDetail({
           onUpgradePlansVisibleChange={handleUpgradePlansVisibleChange}
           purchaseInitialAudience={selectedNavItem.type === "teamPlan" ? "team" : "personal"}
           upgradeActionVisible={!isStartPlanProvider || !hasActivePaidPlan}
-          startPlanPreviewVisible={false}
+          // 自托管：恢复官方免费额度（StartPlan）领取入口。
+          // 上游开源版在此硬编码 false 关闭了它；显示条件本身已满足「能领取/能用才显示」：
+          // StatusCards 的 startPlanCardVisible = isStartPlanProvider && (未连接 || 未购买) && !升级态，
+          // 且 StartPlanCard 在远端无 entitlements 时返回 null，不会出现空卡。
+          startPlanPreviewVisible
         />
       );
 
@@ -810,7 +814,8 @@ export function ModelProviderSectionDetail({
             onUpgradePlansVisibleChange={handleUpgradePlansVisibleChange}
             purchaseInitialAudience={selectedNavItem.type === "teamPlan" ? "team" : "personal"}
             upgradeActionVisible={!isStartPlanProvider || !hasActivePaidPlan}
-            startPlanPreviewVisible={false}
+            // 自托管：恢复官方免费额度（StartPlan）领取入口，条件同上一处。
+            startPlanPreviewVisible
           />
           {hidePlanModels ? null : providerSettingsView && !dedicatedProvider ? (
             <PresetProviderPlaceholderCard

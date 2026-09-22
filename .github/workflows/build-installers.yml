@@ -2,6 +2,11 @@ name: Build installers
 
 # 双平台原生打包：macOS 在 macos runner 上产 dmg/zip，Windows 在 windows runner 上产 nsis 安装包。
 # 不用在 mac 上交叉打 Windows —— 那需要 x86_64 wine，Apple Silicon 上跑不起来。
+#
+# 产物除安装包外还包含 electron-updater 自动更新所需的三件套：
+#   - *.zip / *.dmg / *.exe  全量安装包
+#   - *.blockmap             差分更新块映射（有它才能只下差量）
+#   - latest-mac.yml / latest.yml  更新清单（自建更新服务直接托管，客户端按此拉取）
 on:
   workflow_dispatch:
     inputs:
@@ -44,6 +49,8 @@ jobs:
           path: |
             packages/desktop/dist/*.dmg
             packages/desktop/dist/*.zip
+            packages/desktop/dist/*.blockmap
+            packages/desktop/dist/latest-mac.yml
           if-no-files-found: error
 
   mac-x64:
@@ -73,6 +80,8 @@ jobs:
           path: |
             packages/desktop/dist/*.dmg
             packages/desktop/dist/*.zip
+            packages/desktop/dist/*.blockmap
+            packages/desktop/dist/latest-mac.yml
           if-no-files-found: error
 
   windows:
@@ -101,6 +110,8 @@ jobs:
           name: zcode-windows-x64
           path: |
             packages/desktop/dist/*.exe
+            packages/desktop/dist/*.blockmap
+            packages/desktop/dist/latest.yml
           if-no-files-found: error
 
   release:
