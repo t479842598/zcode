@@ -19,10 +19,7 @@ import {
 import { createServiceDescriptor } from "../descriptors.js";
 import type { ModelConnectivityResult } from "@zcode/shared";
 import { createServiceLogger } from "../logger/serviceLogger.js";
-import {
-  fetchProviderModels,
-  type ProviderModelCatalogEntry,
-} from "./providerModelCatalog.js";
+import { fetchProviderModels, type ProviderModelCatalogEntry } from "./providerModelCatalog.js";
 
 export type {
   ProviderSettingsProviderView,

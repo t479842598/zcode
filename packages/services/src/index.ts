@@ -213,6 +213,12 @@ export type { SessionRealtimePort } from "./session/sessionRealtimePort.js";
 // FileWatcher service — IFileWatcherService is both a type (interface) and value (descriptor)
 export { IFileWatcherService } from "./fileWatcher/fileWatcher.js";
 export { IWebRemoteControlService } from "./webRemoteControl/webRemoteControl.js";
+export { IBackupService } from "./selfBackup/selfBackup.js";
+export type {
+  SelfBackupSettings,
+  SelfBackupStatus,
+  SelfBackupResult,
+} from "./selfBackup/selfBackup.js";
 export type {
   WebRemoteControlState,
   WebRemoteControlStatus,

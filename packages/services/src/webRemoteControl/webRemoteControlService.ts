@@ -1,8 +1,5 @@
 import { Emitter, type Event as RpcEvent } from "@zcode/rpc";
-import type {
-  IWebRemoteControlService,
-  WebRemoteControlState,
-} from "./webRemoteControl.js";
+import type { IWebRemoteControlService, WebRemoteControlState } from "./webRemoteControl.js";
 
 /** host 侧中继桥暴露给本服务的最小状态源（relayDeviceBootstrap 的 handle 满足此形状） */
 export interface WebRemoteControlBridgeSource {

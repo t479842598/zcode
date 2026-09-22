@@ -14,6 +14,7 @@ import type { IZCodeSessionService } from "./zcode-session/zcodeSession.js";
 import type { ICuaPermissionService } from "./cua-permission-broker/cuaPermissionService.js";
 import type { IFileWatcherService } from "./fileWatcher/fileWatcher.js";
 import type { IWebRemoteControlService } from "./webRemoteControl/webRemoteControl.js";
+import type { IBackupService } from "./selfBackup/selfBackup.js";
 import type { IOAuthService } from "./oauth/oauth.js";
 import type {
   IModelSelectionService,
@@ -64,6 +65,8 @@ export interface IServiceAccessor {
   readonly fileWatcherService: IFileWatcherService;
   /** 移动端远程控制状态；仅自托管桌面 Host 提供，SSH 远端/普通 server 没有 */
   readonly webRemoteControlService?: IWebRemoteControlService;
+  /** 自助备份（自托管）：用户自己的 OSS + 自持加密；仅本地桌面 Host 提供 */
+  readonly backupService?: IBackupService;
   readonly oauthService: IOAuthService;
   /** 当前 Environment 的 Provider 配置与设置视图。 */
   readonly providerSettingsService: IProviderSettingsService;

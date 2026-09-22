@@ -2021,6 +2021,43 @@ const enUS: Record<string, string> = {
   "settings.migration.failedTitle": "Failures",
   "settings.migration.reason.session_not_found_or_workspace_mismatch":
     "The source session was not found, or it no longer matches the current workspace filter.",
+  "settings.backup.title": "Backup",
+  "settings.backup.description":
+    "Back up your workspace (including .git) to your own Aliyun OSS: you hold the credentials and the encryption passphrase, and nothing passes through official servers.",
+  "settings.backup.enabled": "Enable backup",
+  "settings.backup.enabledDescription": "When off, no backup runs (including scheduled ones).",
+  "settings.backup.ossTitle": "OSS storage",
+  "settings.backup.endpointDescription":
+    "Regional endpoint, e.g. https://oss-cn-hangzhou.aliyuncs.com",
+  "settings.backup.prefix": "Key prefix",
+  "settings.backup.secretConfigured": "Configured (stored encrypted locally, never shown)",
+  "settings.backup.secretPlaceholderConfigured": "Configured (type to replace)",
+  "settings.backup.encryptionTitle": "Encryption",
+  "settings.backup.encryptionMode": "Mode",
+  "settings.backup.encryptionModeAes": "AES-256-CTR (your passphrase)",
+  "settings.backup.encryptionModeNone": "None",
+  "settings.backup.passphrase": "Encryption passphrase",
+  "settings.backup.passphraseDescription":
+    "Backups are encrypted with this passphrase; it stays on this machine, and envelope.json + the passphrase let you decrypt on your own.",
+  "settings.backup.filterTitle": "Backup content",
+  "settings.backup.includeGitDir": "Include .git directory",
+  "settings.backup.includeGitDirDescription": "Include the full Git history (objects/logs/reflog).",
+  "settings.backup.includeGitLfs": "Include Git LFS cache",
+  "settings.backup.includeGitLfsDescription": "Include .git/lfs/objects large-file cache.",
+  "settings.backup.intervalTitle": "Scheduled backup",
+  "settings.backup.interval": "Interval (seconds)",
+  "settings.backup.intervalDescription":
+    "0 = manual only; above 0 runs against the workspace of the most recent backup.",
+  "settings.backup.intervalPlaceholder": "0 = manual only",
+  "settings.backup.manualTitle": "Manual backup",
+  "settings.backup.manualDescription": "Run one backup of the active workspace right now.",
+  "settings.backup.run": "Back up now",
+  "settings.backup.running": "Backing up…",
+  "settings.backup.runSuccess": "Backup done: {count} files · {size} → {key}",
+  "settings.backup.runFailed": "Backup failed",
+  "settings.backup.runDisabledNoWorkspace": "Open a workspace first",
+  "settings.backup.notConfigured": "Fill in the OSS settings and passphrase first",
+  "settings.backup.unsupported": "Self backup is not available in this environment",
   "settings.usageTitle": "Usage stats",
   "settings.usageDescription":
     "Review rough activity and model usage aggregated from local sessions.",
@@ -3049,7 +3086,8 @@ const enUS: Record<string, string> = {
   "settings.modelProvider.addModel": "Add model",
   "settings.modelProvider.fetchModels.button": "Fetch models",
   "settings.modelProvider.fetchModels.title": "Fetch models",
-  "settings.modelProvider.fetchModels.description": "Fetch the available models from {provider}, then pick the ones to add.",
+  "settings.modelProvider.fetchModels.description":
+    "Fetch the available models from {provider}, then pick the ones to add.",
   "settings.modelProvider.fetchModels.searchPlaceholder": "Search models",
   "settings.modelProvider.fetchModels.retry": "Fetch again",
   "settings.modelProvider.fetchModels.loading": "Fetching model list…",
@@ -6495,7 +6533,8 @@ const enUS: Record<string, string> = {
   // Mobile remote control (self-hosted relay): added by the self-hosted fork.
   "webRemoteControl.trigger": "Mobile remote control",
   "webRemoteControl.title": "Mobile remote control",
-  "webRemoteControl.description": "Scan the QR code or open the link on your phone to control this workspace remotely.",
+  "webRemoteControl.description":
+    "Scan the QR code or open the link on your phone to control this workspace remotely.",
   "webRemoteControl.refresh": "Refresh status",
   "webRemoteControl.qrAlt": "Mobile remote control QR code",
   "webRemoteControl.copyLink": "Copy link",
@@ -6504,8 +6543,10 @@ const enUS: Record<string, string> = {
   "webRemoteControl.status.connecting": "Connecting to relay service",
   "webRemoteControl.status.waiting": "Waiting for phone",
   "webRemoteControl.status.connected": "Phone connected",
-  "webRemoteControl.statusDetail.disabled": "The self-hosted relay is not enabled (controlled by ZCODE_SELFHOST_RELAY_DISABLED).",
-  "webRemoteControl.statusDetail.connecting": "Establishing a connection to the self-hosted relay service…",
+  "webRemoteControl.statusDetail.disabled":
+    "The self-hosted relay is not enabled (controlled by ZCODE_SELFHOST_RELAY_DISABLED).",
+  "webRemoteControl.statusDetail.connecting":
+    "Establishing a connection to the self-hosted relay service…",
   "webRemoteControl.statusDetail.waiting": "Scan the QR code or open the link on your phone.",
   "webRemoteControl.statusDetail.connected": "Your phone can now control this workspace remotely.",
 };

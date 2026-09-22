@@ -123,9 +123,7 @@ export function createRelayAppResponder(context: RelayAppResponderContext): Rela
   // home 根和 / 不是项目目录：手机端拿到只会「打开工作区」失败，直接不报。
   const homeDir = homedir();
   const isUsableWorkspace = (item: { workspacePath: string }): boolean =>
-    Boolean(item.workspacePath) &&
-    item.workspacePath !== "/" &&
-    item.workspacePath !== homeDir;
+    Boolean(item.workspacePath) && item.workspacePath !== "/" && item.workspacePath !== homeDir;
 
   let workspaces: RelayAppWorkspace[] = context.workspaces
     .filter(isUsableWorkspace)
@@ -238,7 +236,10 @@ export function createRelayAppResponder(context: RelayAppResponderContext): Rela
               : { bridgeGeneration: payload.bridgeGeneration }),
             ...(payload.recoveryId === undefined ? {} : { recoveryId: payload.recoveryId }),
           };
-          if (requested && !workspaces.some((item) => resolveRelayWorkspaceKey(item) === requested)) {
+          if (
+            requested &&
+            !workspaces.some((item) => resolveRelayWorkspaceKey(item) === requested)
+          ) {
             return {
               ...base,
               zcode_type: "workspace-bridge-error",
@@ -284,7 +285,9 @@ export function createRelayAppResponder(context: RelayAppResponderContext): Rela
             zcode_type: "workspace-reconnect-response",
             requestId: payload.requestId,
             workspaceKey: requested,
-            success: requested === "" || workspaces.some((item) => resolveRelayWorkspaceKey(item) === requested),
+            success:
+              requested === "" ||
+              workspaces.some((item) => resolveRelayWorkspaceKey(item) === requested),
           };
         }
 

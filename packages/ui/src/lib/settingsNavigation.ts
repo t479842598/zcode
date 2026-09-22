@@ -16,6 +16,7 @@ export type SettingsSectionId =
   | "subagents"
   | "commands"
   | "hooks"
+  | "backup"
   | "workspaceFileSearch"
   | "computerUse"
   | "automations"

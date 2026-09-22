@@ -17,6 +17,7 @@ import {
   IConversationShareService,
   IFileWatcherService,
   IWebRemoteControlService,
+  IBackupService,
   IOAuthService,
   IModelSelectionService,
   IProviderSettingsService,
@@ -70,6 +71,8 @@ export class RemoteServiceAccess implements IServiceAccessor {
   readonly fileWatcherService: IFileWatcherService;
   // 可选：手机端（web）的 service stub 不保证提供此能力，桌面本地 Host 始终注册。
   readonly webRemoteControlService?: IWebRemoteControlService;
+  // 可选：自助备份（自托管）；桌面本地 Host 始终注册，远端/手机端 stub 不提供。
+  readonly backupService?: IBackupService;
   readonly oauthService: IOAuthService;
   readonly providerSettingsService: IProviderSettingsService;
   readonly modelSelectionService: IModelSelectionService;
@@ -150,6 +153,9 @@ export class RemoteServiceAccess implements IServiceAccessor {
     );
     this.webRemoteControlService = ProxyChannel.toService<IWebRemoteControlService>(
       channelClient.getChannel(IWebRemoteControlService.channelName),
+    );
+    this.backupService = ProxyChannel.toService<IBackupService>(
+      channelClient.getChannel(IBackupService.channelName),
     );
     this.oauthService = ProxyChannel.toService<IOAuthService>(
       channelClient.getChannel(IOAuthService.channelName),

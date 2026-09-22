@@ -310,6 +310,7 @@ import { createLocalConversationShareArtifactSource } from "./conversation-share
 import { ConversationShareHttpClient } from "./conversation-share/conversationShareHttpClient.js";
 import { IFileWatcherService } from "./fileWatcher/fileWatcher.js";
 import { IWebRemoteControlService } from "./webRemoteControl/webRemoteControl.js";
+import { IBackupService } from "./selfBackup/selfBackup.js";
 import { IOAuthService } from "./oauth/oauth.js";
 import { IUsageStatsService } from "./usage-stats/usageStats.js";
 import { ICodingPlanSubscriptionService } from "./coding-plan-subscription/codingPlanSubscription.js";
@@ -341,6 +342,7 @@ import { createLegacyTeamOrganizationResolver } from "./model-provider/legacyTea
 import { createObservableSettingService } from "./setting/observableSettingService.js";
 import { createCredentialService } from "./credential/credentialService.js";
 import { createBroadcastService } from "./broadcast/broadcastService.js";
+import { createBackupService } from "./selfBackup/selfBackupService.js";
 import { createZCodeAgentService } from "./zcode-agent/zcodeAgentService.js";
 import type { ZCodeAgentCommandResolver } from "./zcode-agent/zcodeAgentProcessManager.js";
 import { buildAgentTelemetrySpawnEnv } from "./zcode-agent/agentTelemetryEnv.js";
@@ -2441,6 +2443,8 @@ export function createLocalServices(options: {
     .register(IFileWatcherService, createFileWatcherService())
     // 移动端远程控制（自建中继）：host 启动中继桥后回填状态；见 desktop/host/relayDeviceBootstrap.ts
     .register(IWebRemoteControlService, createWebRemoteControlService())
+    // 自助备份（自托管）：用户自己的 OSS + 自持加密；配置读 Setting + Credential
+    .register(IBackupService, createBackupService({ settingService, credentialService }))
     .register(IOAuthService, oauthService)
     .register(
       IUsageStatsService,

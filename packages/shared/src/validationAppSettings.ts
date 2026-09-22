@@ -37,6 +37,32 @@ const localePreferenceSchema = z.enum(["system", "zh-CN", "en-US"]);
 const zcodeInteractionBehaviorSchema = z.enum(["queue", "guide"]);
 const electronReleaseChannelSchema = z.enum(["stable", "preview"]);
 const desktopZoomLevelSchema = z.number().int().min(-3).max(5);
+
+/** 自助备份（自托管）：结构化配置；秘密字段（Secret/加密密码）走 credentialService，不在此 schema */
+const selfBackupSettingsSchema = z.object({
+  enabled: z.boolean().optional(),
+  oss: z
+    .object({
+      accessKeyId: z.string().optional(),
+      bucket: z.string().optional(),
+      endpoint: z.string().optional(),
+      prefix: z.string().optional(),
+    })
+    .optional(),
+  encryption: z.object({ mode: z.enum(["aes-256-ctr", "none"]).optional() }).optional(),
+  schedule: z
+    .object({
+      intervalSeconds: z.number().int().min(0).optional(),
+      maxSnapshots: z.number().int().min(1).max(1000).optional(),
+    })
+    .optional(),
+  filter: z
+    .object({
+      includeGitDir: z.boolean().optional(),
+      includeGitLfs: z.boolean().optional(),
+    })
+    .optional(),
+});
 const desktopWindowSizeSchema = z.object({
   width: z.number().int().min(480),
   height: z.number().int().min(640),
@@ -441,6 +467,7 @@ const appSettingsObjectSchema = z.object({
   closeToTrayOnWindows: z.boolean().default(true),
   closeToTrayOnWindowsMigrationInitialized: z.boolean().default(true),
   keepAwakeWhileRunning: z.boolean().default(false),
+  selfBackup: selfBackupSettingsSchema.default({}),
   desktopZoomLevel: desktopZoomLevelSchema.optional(),
   desktopWindowSize: desktopWindowSizeSchema.optional(),
   desktopChromiumHardwareAccelerationEnabled: z.boolean().default(true),
@@ -508,6 +535,7 @@ export const appSettingsPatchSchema = z.object({
   taskAutoArchiveOlderThanDays: z.number().int().positive().max(365).optional(),
   closeToTrayOnWindows: z.boolean().optional(),
   keepAwakeWhileRunning: z.boolean().optional(),
+  selfBackup: selfBackupSettingsSchema.optional(),
   closeToTrayOnWindowsMigrationInitialized: z.boolean().optional(),
   desktopZoomLevel: desktopZoomLevelSchema.optional(),
   desktopWindowSize: desktopWindowSizeSchema.optional(),

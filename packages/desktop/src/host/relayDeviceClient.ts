@@ -8,7 +8,11 @@ import { createHmac, randomBytes } from "node:crypto";
 import WebSocket from "ws";
 import { Emitter, type ISocket } from "@zcode/rpc";
 import { createRelaySocket, type RelayDataPayload } from "./relayDeviceSocket.js";
-import { createRelayAppResponder, type RelayAppResponder, type RelayAppTask } from "./relayAppProtocol.js";
+import {
+  createRelayAppResponder,
+  type RelayAppResponder,
+  type RelayAppTask,
+} from "./relayAppProtocol.js";
 
 /** 随机生成 device 侧长期密钥（服务端只当 HMAC key 用，不校验格式） */
 export function createPassHash(): string {
@@ -22,9 +26,7 @@ export function computeProof(
   role: "device" | "terminal",
   deviceSid: string,
 ): string {
-  return createHmac("sha256", passHash)
-    .update(`${nonce}|${role}|${deviceSid}`)
-    .digest("base64url");
+  return createHmac("sha256", passHash).update(`${nonce}|${role}|${deviceSid}`).digest("base64url");
 }
 
 export interface RelayDeviceClientOptions {
@@ -57,9 +59,9 @@ export interface RelayDeviceConnection {
    * 消费方（relayChannelServer）靠它决定什么时候发 RPC Initialize ——
    * 手机端没在房间里时发出去会丢，之后手机端接入就只能一直等。
    */
-  readonly onPairStatusChange: (
-    listener: (status: "waiting" | "matched") => void,
-  ) => { dispose(): void };
+  readonly onPairStatusChange: (listener: (status: "waiting" | "matched") => void) => {
+    dispose(): void;
+  };
   /**
    * 手机端拿到 workspace-bridge-ready 之后才会建 RPC protocol。
    * Initialize 必须在这之后再发：早于此时刻发出去的会落在协议层建立之前没人接收，
@@ -196,7 +198,8 @@ export function connectRelayDevice(
         }
         case "auth_ack": {
           pairStatus = message.pair_status === "matched" ? "matched" : "waiting";
-          log(`relay authenticated, pair_status=${pairStatus}`);          appResponder = createRelayAppResponder({
+          log(`relay authenticated, pair_status=${pairStatus}`);
+          appResponder = createRelayAppResponder({
             deviceSid,
             workspaces: options.workspaces,
             ...(options.resolveWorkspaces ? { resolveWorkspaces: options.resolveWorkspaces } : {}),

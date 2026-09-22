@@ -6,7 +6,14 @@
  *   ZCODE_SELFHOST_RELAY_WS_URL=wss://zcode.tang74.top/ws
  *   ZCODE_SELFHOST_RELAY_DISABLED=1 关闭桥接
  */
-import { mkdirSync, readFileSync, writeFileSync, appendFileSync, statSync, renameSync } from "node:fs";
+import {
+  mkdirSync,
+  readFileSync,
+  writeFileSync,
+  appendFileSync,
+  statSync,
+  renameSync,
+} from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import type { ServiceCollection } from "@zcode/services";

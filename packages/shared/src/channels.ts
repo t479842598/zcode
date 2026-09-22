@@ -83,6 +83,8 @@ export const ServiceChannels = {
   Setting: "setting",
   /** 凭据管理（从 main IPC 迁移到 host RPC） */
   Credential: "credential",
+  /** 自助备份（自托管：用户自己的 OSS + 自持加密） */
+  SelfBackup: "self-backup",
   /** Computer Use Helper macOS 权限服务 */
   CuaPermission: "cua-permission",
   /** producer-owned PiP session presentation client */

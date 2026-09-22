@@ -29,10 +29,7 @@ import { registerHostNetworkTelemetry, stopHostNetworkTelemetry } from "./hostNe
 import { registerHostServiceResourceTelemetry } from "./hostServiceResourceTelemetry.js";
 import { resolveResourceTelemetryEnvironmentKey } from "./hostResourceTelemetryEnvironment.js";
 import { reportHostSessionCreate } from "./hostSessionCreateTelemetry.js";
-import {
-  startRelayDeviceBridge,
-  type RelayDeviceBridgeHandle,
-} from "./relayDeviceBootstrap.js";
+import { startRelayDeviceBridge, type RelayDeviceBridgeHandle } from "./relayDeviceBootstrap.js";
 import { createBrowserControlMainBridge } from "./browserControlMainBridge.js";
 import { materializeBrowserRecordingArtifact } from "./browserRecordingArtifactMaterializer.js";
 import {
@@ -2906,7 +2903,10 @@ parentPort.on("message", async (e: Electron.MessageEvent) => {
                 const settings = await settingService.get();
                 const seen = new Set<string>();
                 const list: Array<{ workspacePath: string; workspaceIdentity?: string }> = [];
-                const push = (item: { workspacePath: string; workspaceIdentity?: string }): void => {
+                const push = (item: {
+                  workspacePath: string;
+                  workspaceIdentity?: string;
+                }): void => {
                   const key = item.workspaceIdentity?.trim() || item.workspacePath;
                   if (!key || seen.has(key)) return;
                   seen.add(key);

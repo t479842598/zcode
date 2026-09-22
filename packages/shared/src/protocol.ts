@@ -276,6 +276,19 @@ export interface AppSettings {
   taskAutoArchiveEnabled?: boolean;
   /** 自动归档阈值；当任务最后更新时间早于该天数时允许被归档 */
   taskAutoArchiveOlderThanDays?: number;
+  /** 自助备份（自托管）：用户自己的 OSS + 自持加密；秘密字段（Secret/密码）不落盘，存 credentialService */
+  selfBackup?: {
+    enabled?: boolean;
+    oss?: {
+      accessKeyId?: string;
+      bucket?: string;
+      endpoint?: string;
+      prefix?: string;
+    };
+    encryption?: { mode?: "aes-256-ctr" | "none" };
+    schedule?: { intervalSeconds?: number; maxSnapshots?: number };
+    filter?: { includeGitDir?: boolean; includeGitLfs?: boolean };
+  };
   /** Windows 桌面端关闭窗口时隐藏到托盘；其它平台忽略 */
   closeToTrayOnWindows?: boolean;
   /** 存在执行中的闲时任务时阻止系统闲置休眠（手动开关，防不了合盖）。 */

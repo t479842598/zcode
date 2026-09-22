@@ -28,6 +28,7 @@ import {
 import { Button } from "@/components/ui/button.js";
 import { toast } from "@/components/ui/toast.js";
 import { DesktopWindowFrame } from "@/DesktopWindowFrame.js";
+import { BackupSettingsSection } from "@/settings/BackupSettingsSection.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { usePlatform } from "@/hooks/usePlatform.js";
 import { getPathLeaf } from "@/lib/path.js";
@@ -55,7 +56,6 @@ import {
 } from "@/lib/accountProviderAccess.js";
 import { buildUsageEntitlementCacheKey } from "@/lib/usageEntitlementCache.js";
 import { ModelProviderSection } from "@/settings/ModelProviderSection.js";
-import { useCodingPlanUpgradeDialog } from "@/settings/CodingPlanUpgradeDialogProvider.js";
 import { useEnterpriseCodingPlanProducts } from "@/settings/model-provider-section/useEnterpriseCodingPlanProducts.js";
 import { UsageStatsSection, type UsageStatsSectionTab } from "@/settings/UsageStatsSection.js";
 import {
@@ -1867,6 +1867,11 @@ export function SettingsPage({
                             workspacePath={activeWorkspacePath}
                             workspaceIdentity={activeWorkspaceIdentity}
                             isDesktop={isDesktop}
+                          />
+                        ) : activeSection === "backup" ? (
+                          <BackupSettingsSection
+                            workspacePath={activeWorkspacePath ?? undefined}
+                            workspaceIdentity={activeWorkspaceIdentity}
                           />
                         ) : activeSection === "usage" ? (
                           <UsageStatsSection
