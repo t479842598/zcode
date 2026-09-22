@@ -132,6 +132,20 @@ async function main() {
   run(sshpass, ["-p", SSH_PASS, "ssh", ...sshOpts, HOST, `mkdir -p ${remoteDir}`]);
   console.log("• 远端目录就绪");
 
+  // 1.5 清理旧版本产物（只留本次版本；服务端磁盘有限）
+  const keepPatterns = [...artifacts, matcher.manifest, "manifest.yml"];
+  const keepList = keepPatterns.map((n) => `'${n.replace(/'/g, "'\\''")}'`).join(" ");
+  const pruneOut = run(sshpass, [
+    "-p",
+    SSH_PASS,
+    "ssh",
+    ...sshOpts,
+    HOST,
+    `cd ${remoteDir} && for f in *; do [ -f "$f" ] || continue; keep=0; for k in ${keepList}; do [ "$f" = "$k" ] && keep=1; done; [ "$keep" = 0 ] && rm -f "$f" && echo "  已删 $f"; done; true`,
+  ]);
+  const pruned = (pruneOut ?? "").trim();
+  console.log(pruned ? `• 清理旧产物：\n${pruned}` : "• 无旧产物需清理");
+
   // 2. 上传产物与清单（-C 压缩，大包明显更快）
   for (const name of [...artifacts, matcher.manifest]) {
     const localPath = join(DIST_DIR, name);
