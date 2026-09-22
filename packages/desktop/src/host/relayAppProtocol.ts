@@ -42,6 +42,37 @@ export interface RelayAppTask {
   archived?: boolean;
 }
 
+/**
+ * 任务索引条目 → 手机端 task 形状（结构类型，避免协议层依赖 services 包）。
+ *
+ * `displayStatus` 必须透传任务索引里的**真实持久化状态**（running / completed / error），
+ * 只有缺失时才落回 idle。手机端用 `displayStatus === "running"` 判断运行中，并据此把
+ * 运行中的会话排到最前；早前调用方把它硬编码成 idle，导致运行中的对话在手机端
+ * 既看不到运行态、也排不到最前。
+ */
+export function toRelayAppTask(item: {
+  taskId: string;
+  title?: string;
+  workspacePath: string;
+  workspaceIdentity?: string;
+  createdAt: number;
+  updatedAt: number;
+  /** 任务索引的持久化状态；与 RelayAppTask.displayStatus 同集，另有 idle 缺省 */
+  status?: "running" | "completed" | "error";
+}): RelayAppTask {
+  return {
+    taskId: item.taskId,
+    title: item.title || "未命名任务",
+    workspacePath: item.workspacePath,
+    ...(item.workspaceIdentity ? { workspaceIdentity: item.workspaceIdentity } : {}),
+    workspaceLabel: basename(item.workspacePath) || item.workspacePath,
+    workspaceKind: "local",
+    createdAt: item.createdAt,
+    updatedAt: item.updatedAt,
+    displayStatus: item.status ?? "idle",
+  };
+}
+
 export interface RelayAppWorkspace {
   workspacePath: string;
   workspaceIdentity?: string;

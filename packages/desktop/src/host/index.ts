@@ -16,7 +16,6 @@
 import { createHostDatabaseStartup } from "./hostDatabaseStartup.js";
 import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
-import { basename } from "node:path";
 import {
   MessagePortProtocol,
   ChannelServer,
@@ -30,6 +29,7 @@ import { registerHostServiceResourceTelemetry } from "./hostServiceResourceTelem
 import { resolveResourceTelemetryEnvironmentKey } from "./hostResourceTelemetryEnvironment.js";
 import { reportHostSessionCreate } from "./hostSessionCreateTelemetry.js";
 import { startRelayDeviceBridge, type RelayDeviceBridgeHandle } from "./relayDeviceBootstrap.js";
+import { toRelayAppTask } from "./relayAppProtocol.js";
 import { createBrowserControlMainBridge } from "./browserControlMainBridge.js";
 import { materializeBrowserRecordingArtifact } from "./browserRecordingArtifactMaterializer.js";
 import {
@@ -2938,17 +2938,7 @@ parentPort.on("message", async (e: Electron.MessageEvent) => {
                   sortBy: "updated",
                   limit: 100,
                 });
-                return result.items.map((item) => ({
-                  taskId: item.taskId,
-                  title: item.title || "未命名任务",
-                  workspacePath: item.workspacePath,
-                  ...(item.workspaceIdentity ? { workspaceIdentity: item.workspaceIdentity } : {}),
-                  workspaceLabel: basename(item.workspacePath) || item.workspacePath,
-                  workspaceKind: "local" as const,
-                  createdAt: item.createdAt,
-                  updatedAt: item.updatedAt,
-                  displayStatus: "idle" as const,
-                }));
+                return result.items.map(toRelayAppTask);
               },
               ...(msg.workspacePath &&
               relayWorkspaces.some((item) => item.workspacePath === msg.workspacePath)
