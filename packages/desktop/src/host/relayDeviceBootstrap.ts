@@ -12,6 +12,7 @@ import { dirname, join } from "node:path";
 import type { ServiceCollection } from "@zcode/services";
 import { connectRelayDevice, createPassHash } from "./relayDeviceClient.js";
 import { serveRelaySocketOnServices } from "./relayChannelServer.js";
+import type { RelayAppTask } from "./relayAppProtocol.js";
 
 export const DEFAULT_RELAY_WS_URL = "wss://zcode.tang74.top/ws";
 /** 手机端工作台地址（自托管静态站） */
@@ -19,6 +20,8 @@ export const DEFAULT_WEB_REMOTE_URL = "https://zcode.tang74.top/remote/v4/";
 
 const RECONNECT_MIN_MS = 1_000;
 const RECONNECT_MAX_MS = 30_000;
+/** 等手机端第一条 rpc-frame 期间，Initialize 的重发间隔 */
+const INITIALIZE_RESEND_INTERVAL_MS = 400;
 
 export function resolveRelayWsUrl(env: NodeJS.ProcessEnv = process.env): string {
   return env.ZCODE_SELFHOST_RELAY_WS_URL?.trim() || DEFAULT_RELAY_WS_URL;
@@ -80,6 +83,12 @@ export interface RelayDeviceBridgeOptions {
   deviceMid: string;
   /** 本 host 能承载的工作区（main 传下来的 agentWarmupTargets，按最近使用排序） */
   workspaces: ReadonlyArray<{ workspacePath: string; workspaceIdentity?: string }>;
+  /** 动态刷新工作区名单（settings.recentProjects / lastWorkspaceSession 等完整来源） */
+  resolveWorkspaces?: () => Promise<
+    ReadonlyArray<{ workspacePath: string; workspaceIdentity?: string }>
+  >;
+  /** 取任务/对话列表，供手机端展示「N 个任务」与对话列表 */
+  resolveTasks?: () => Promise<ReadonlyArray<RelayAppTask>>;
   /** 手机端先打开哪个；缺省用第一个 */
   activeWorkspacePath?: string;
   /** 展示给手机端的设备名，默认主机名 */
@@ -158,6 +167,15 @@ export function startRelayDeviceBridge(options: RelayDeviceBridgeOptions): Relay
    */
   let attemptInFlight = false;
   let retryQueued = false;
+  /** 是否还在等手机端第一条 rpc-frame（期间周期重发 Initialize） */
+  let initializePending = false;
+  let initializeLoop: ReturnType<typeof setInterval> | undefined;
+
+  const resetInitializeLoop = () => {
+    initializePending = false;
+    if (initializeLoop) clearInterval(initializeLoop);
+    initializeLoop = undefined;
+  };
   /**
    * 连接链接只在会话建立时生成一次。
    * 早前每次 getState() 都重算（内含 Date.now()），导致 UI 每 2s 拿到“新”链接：
@@ -187,6 +205,8 @@ export function startRelayDeviceBridge(options: RelayDeviceBridgeOptions): Relay
         deviceMid: options.deviceMid,
         passHash,
         workspaces: options.workspaces,
+        ...(options.resolveWorkspaces ? { resolveWorkspaces: options.resolveWorkspaces } : {}),
+        ...(options.resolveTasks ? { resolveTasks: options.resolveTasks } : {}),
         ...(options.activeWorkspacePath
           ? { activeWorkspacePath: options.activeWorkspacePath }
           : {}),
@@ -208,11 +228,42 @@ export function startRelayDeviceBridge(options: RelayDeviceBridgeOptions): Relay
       channelServer = serveRelaySocketOnServices(active.socket, options.services, (...args) =>
         log("relay rpc", args),
       );
-      // 手机端拿到 workspace-bridge-ready 之后才建 RPC protocol，
-      // 所以 Initialize 必须在那一刻之后发（早发没人收，请求会一直排队）。
+      // 手机端拿到 workspace-bridge-ready 之后才开始建 RPC protocol
+      // （收 ready → x0t 建 bridge → d0t 建 ChannelClient → 订阅数据），真机上这几步
+      // 比脚本慢得多（要过 React 渲染），单次 Initialize 会落在订阅之前被丢掉，
+      // 而 ChannelClient 的请求必须等 Initialize 才发出 —— 于是永远卡在「加载工作区」。
+      // Initialize 是幂等的（重复收到只把客户端推到 Idle），所以这里周期重发，
+      // 直到收到手机端第一条 rpc-frame（或超时）。
       active.onBridgeOpened(() => {
         log("relay bridge: bridge opened by terminal, sending RPC initialize");
-        channelServer?.ready();
+        // 每次都换一个全新的 connection scope。
+        // zcode-agent 的 scope 会把 clientId 绑死在自身上（boundClientId），
+        // 而手机端每刷新一次页面就会用**新的 clientId** 重新握手；若复用旧 scope，
+        // initializeConversationV4 直接抛 fault.connection.clientChanged ——
+        // 表现就是「刷新一次之后再也进不去会话」。所以 scope 的生命周期必须绑在
+        // bridge（手机端接入边界）上，而不是绑在 device 那条长连接上。
+        // 注意：bridge-open 时旧的 RPC 通道已经没人用了，dispose 它不会影响本次握手。
+        channelServer?.dispose();
+        channelServer = serveRelaySocketOnServices(active.socket, options.services, (...args) =>
+          log("relay rpc", args),
+        );
+        resetInitializeLoop();
+        initializePending = true;
+        channelServer.ready();
+        initializeLoop = setInterval(() => {
+          if (!initializePending) {
+            resetInitializeLoop();
+            return;
+          }
+          channelServer?.ready();
+        }, INITIALIZE_RESEND_INTERVAL_MS);
+        initializeLoop.unref?.();
+      });
+      active.onRpcFrameReceived(() => {
+        if (initializePending) {
+          log("relay bridge: first rpc-frame received, stop re-sending initialize");
+          resetInitializeLoop();
+        }
       });
       log(`relay bridge: connected (device_sid=${active.deviceSid})`);
       active.socket.onClose(() => {

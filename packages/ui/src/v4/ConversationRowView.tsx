@@ -1606,7 +1606,10 @@ const ReasoningRowView = memo(function ReasoningRowView({
       <Reasoning
         className="w-full"
         isStreaming={streaming}
-        autoCollapseKey={streaming ? null : row.state}
+        // 不自动收起：第三方中转常把正文标成 reasoning，结束后自动收起会让
+        // 长文本直接不可见（用户必须手动展开）。保留流式中的摘要展示与
+        // 用户手动收起的能力，只是不再替用户做「看完就收」的决定。
+        autoCollapseKey={null}
         {...(durationSeconds !== undefined ? { duration: durationSeconds } : {})}
       >
         {/* 附件重构合并时误丢了 streamingText 接线，导致摘要组件仍在但永远收到空文本。 */}

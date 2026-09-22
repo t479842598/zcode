@@ -9,7 +9,7 @@ import { randomUUID } from "node:crypto";
 import {
   ChannelServer,
   LoggingChannelServer,
-  SocketProtocol,
+  type IMessagePassingProtocol,
   type ISocket,
 } from "@zcode/rpc";
 import {
@@ -36,7 +36,17 @@ export function serveRelaySocketOnServices(
   services: ServiceCollection,
   log: (...args: unknown[]) => void,
 ): RelayChannelServerHandle {
-  const protocol = new SocketProtocol(socket);
+  // 注意：这里刻意不用 SocketProtocol。
+  // 手机端（web-remote）用的是 bridge protocol（b0t），它把每条 relay data 帧直接当作
+  // 一整条 RPC 消息的字节，不带 SocketProtocol 那层 13 字节帧头。若这层再包一层
+  // SocketProtocol，对端 onBuffer 收到的就是 `01 00 ... 06 <正文>`（实测），
+  // deserialize 出 undefined，ChannelClient 永远停在 Uninitialized，所有请求排队不发。
+  // 一次 socket.write 对应一个中继 data 帧，正好与对端“一帧一消息”对称。
+  const protocol: IMessagePassingProtocol = {
+    onMessage: socket.onData,
+    send: (buffer) => socket.write(buffer),
+    drain: () => Promise.resolve(),
+  };
   const rawServer = new ChannelServer(protocol, "server", 1000, true);
   const server = new LoggingChannelServer(rawServer, log);
 

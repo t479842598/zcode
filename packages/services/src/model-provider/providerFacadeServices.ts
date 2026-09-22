@@ -19,6 +19,10 @@ import {
 import { createServiceDescriptor } from "../descriptors.js";
 import type { ModelConnectivityResult } from "@zcode/shared";
 import { createServiceLogger } from "../logger/serviceLogger.js";
+import {
+  fetchProviderModels,
+  type ProviderModelCatalogEntry,
+} from "./providerModelCatalog.js";
 
 export type {
   ProviderSettingsProviderView,
@@ -68,6 +72,12 @@ export interface IProviderSettingsService {
   testModelConnectivity(
     input: ProviderSettingsConnectivityRequest,
   ): Promise<ModelConnectivityResult>;
+  /**
+   * 从 provider 上游拉取可用模型列表（OpenAI 兼容 GET {baseUrl}/models）。
+   * 用于「获取模型」：选中的模型再经 addPersonalModel 加入。
+   * 失败时抛 Error，message 可直接展示给用户。
+   */
+  listProviderModels(providerId: ProviderId): Promise<readonly ProviderModelCatalogEntry[]>;
 }
 
 export const IProviderSettingsService = createServiceDescriptor<IProviderSettingsService>(
@@ -204,6 +214,23 @@ export function createProviderSettingsService(
         ...(input.workspaceIdentity ? { workspaceIdentity: input.workspaceIdentity } : {}),
         providerId: input.providerId,
         modelId: input.modelId,
+      });
+    },
+    listProviderModels: async (providerId) => {
+      await ensureReady();
+      await facade.waitForProviderOperations(providerId);
+      const provider = facade.getView().providers.find((item) => item.providerId === providerId);
+      if (!provider) {
+        throw new Error(`找不到供应商：${providerId}`);
+      }
+      const config = provider.effectiveConfig;
+      const access = config.access;
+      // 只有 api-key 类型的供应商能直接拉列表；智谱账号类型走 OAuth，没有可用的 key。
+      const apiKey = access?.type === "api-key" ? access.apiKey : undefined;
+      return fetchProviderModels({
+        baseUrl: config.api?.baseUrl ?? "",
+        ...(apiKey ? { apiKey } : {}),
+        headers: config.api?.headers ?? null,
       });
     },
   };

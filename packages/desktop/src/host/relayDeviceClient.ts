@@ -8,7 +8,7 @@ import { createHmac, randomBytes } from "node:crypto";
 import WebSocket from "ws";
 import { Emitter, type ISocket } from "@zcode/rpc";
 import { createRelaySocket, type RelayDataPayload } from "./relayDeviceSocket.js";
-import { createRelayAppResponder, type RelayAppResponder } from "./relayAppProtocol.js";
+import { createRelayAppResponder, type RelayAppResponder, type RelayAppTask } from "./relayAppProtocol.js";
 
 /** 随机生成 device 侧长期密钥（服务端只当 HMAC key 用，不校验格式） */
 export function createPassHash(): string {
@@ -34,6 +34,12 @@ export interface RelayDeviceClientOptions {
   passHash: string;
   /** 本 host 能承载的工作区（main 传下来的 agentWarmupTargets，按最近使用排序） */
   workspaces: ReadonlyArray<{ workspacePath: string; workspaceIdentity?: string }>;
+  /** 动态刷新工作区名单（settings.recentProjects / lastWorkspaceSession 等完整来源） */
+  resolveWorkspaces?: () => Promise<
+    ReadonlyArray<{ workspacePath: string; workspaceIdentity?: string }>
+  >;
+  /** 取任务/对话列表，供手机端展示「N 个任务」与对话列表 */
+  resolveTasks?: () => Promise<ReadonlyArray<RelayAppTask>>;
   /** 手机端先打开哪个；缺省用第一个 */
   activeWorkspacePath?: string;
   /** 心跳间隔，默认 25s */
@@ -60,6 +66,8 @@ export interface RelayDeviceConnection {
    * 手机端的请求就会一直排队（已配对但一直加载工作区）。
    */
   readonly onBridgeOpened: (listener: () => void) => { dispose(): void };
+  /** 收到手机端第一条 rpc-frame（用于停止重发 Initialize） */
+  readonly onRpcFrameReceived: (listener: () => void) => { dispose(): void };
   dispose(): void;
 }
 
@@ -78,6 +86,7 @@ export function connectRelayDevice(
     const onEndEmitter = new Emitter<void>();
     const pairStatusEmitter = new Emitter<"waiting" | "matched">();
     const bridgeOpenedEmitter = new Emitter<void>();
+    const rpcFrameEmitter = new Emitter<void>();
     let deviceSid = "";
     let pairStatus: "waiting" | "matched" = "waiting";
     /** 只在状态真的变化时通知，避免心跳重复触发 Initialize */
@@ -190,9 +199,17 @@ export function connectRelayDevice(
           log(`relay authenticated, pair_status=${pairStatus}`);          appResponder = createRelayAppResponder({
             deviceSid,
             workspaces: options.workspaces,
+            ...(options.resolveWorkspaces ? { resolveWorkspaces: options.resolveWorkspaces } : {}),
+            ...(options.resolveTasks ? { resolveTasks: options.resolveTasks } : {}),
             ...(options.activeWorkspacePath
               ? { activeWorkspacePath: options.activeWorkspacePath }
               : {}),
+            // 手机端对每个 rpc-frame 都做 zod strict 校验（bridgeSessionId 必填、
+            // 且必须与它发送时一致），所以桥一建好就得把 identity 装到出站帧上。
+            onBridgeIdentity: (identity) => {
+              log(`relay bridge: frame identity set session=${identity.bridgeSessionId}`);
+              relaySocket.setFrameIdentity(identity);
+            },
           });
           log(`relay app protocol ready workspaceKey=${appResponder.workspaceKey}`);
           if (!settled) {
@@ -207,6 +224,7 @@ export function connectRelayDevice(
               pairStatus: () => pairStatus,
               onPairStatusChange: pairStatusEmitter.event,
               onBridgeOpened: bridgeOpenedEmitter.event,
+              onRpcFrameReceived: rpcFrameEmitter.event,
               dispose() {
                 if (disposed) return;
                 disposed = true;
@@ -230,24 +248,35 @@ export function connectRelayDevice(
             // 手机端的应用层 payload（bootstrap-request / workspace-bridge-open /
             // platform-request 等）没有分片字段，不能送去当 RPC 分片帧组装，
             // 否则会被 RelayMessageAssembler 的字段校验静默丢弃、手机侧超时。
-            const reply = appResponder?.handle(payload as unknown as { zcode_type: string });
-            if (reply) {
+            // 工作区/任务名单要从 Setting 与 zcode-task 服务异步取，而这里是同步的
+            // onMessage 回调，所以自己去 await，不阻塞后续帧的处理。
+            void (async () => {
+              const reply = await appResponder?.handle(
+                payload as unknown as { zcode_type: string },
+              );
+              if (!reply) {
+                log(`relay app <- ${zcodeType} (no response)`);
+                return;
+              }
               log(`relay app <- ${zcodeType} -> ${String(reply.zcode_type)}`);
               send({ type: "data", payload: reply, client_ts: Date.now() });
               // bridge-ready 发出后，手机端才会建 RPC protocol，这时发 Initialize 才有人收
               if (reply.zcode_type === "workspace-bridge-ready") {
                 bridgeOpenedEmitter.fire();
               }
-            } else {
-              log(`relay app <- ${zcodeType} (no response)`);
-            }
+            })();
             return;
           }
           // bridge 建好后手机端才开始发 RPC 帧；记首片，便于判断卡在「没发」还是「没送达」
-          if (payload.fragmentIndex === 0) {
+          if (zcodeType === "rpc-frame-ack") {
+            log(`relay rpc-frame-ack <- ackMessageSeq=${String(payload.ackMessageSeq)}`);
+          } else if (payload.fragmentIndex === 0) {
             log(
               `relay rpc-frame <- ${zcodeType} messageSeq=${payload.messageSeq} fragments=${payload.fragmentCount} bytes=${payload.messageBytes}`,
             );
+            // 只有真的从手机端收到了请求，才能确定它已经建好 RPC protocol、
+            // Initialize 已经送达（ack 不算）。
+            rpcFrameEmitter.fire();
           }
           relaySocket.acceptDataPayload(payload);
           return;

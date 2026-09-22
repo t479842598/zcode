@@ -16,6 +16,7 @@
 import { createHostDatabaseStartup } from "./hostDatabaseStartup.js";
 import { randomUUID } from "node:crypto";
 import { homedir } from "node:os";
+import { basename } from "node:path";
 import {
   MessagePortProtocol,
   ChannelServer,
@@ -2898,6 +2899,57 @@ parentPort.on("message", async (e: Electron.MessageEvent) => {
               services,
               deviceMid: msg.deviceMid,
               workspaces: relayWorkspaces,
+              // 静态的 relayWorkspaces 只有 main 传来的 agentWarmupTargets（上限 3 个），
+              // 手机端会抱怨「项目没显示全」。这里改成每次列表请求都去 Setting 里取完整名单
+              // （已打开的 tab + 最近项目），并顺带把任务列表一并提供给手机端。
+              resolveWorkspaces: async () => {
+                const settings = await settingService.get();
+                const seen = new Set<string>();
+                const list: Array<{ workspacePath: string; workspaceIdentity?: string }> = [];
+                const push = (item: { workspacePath: string; workspaceIdentity?: string }): void => {
+                  const key = item.workspaceIdentity?.trim() || item.workspacePath;
+                  if (!key || seen.has(key)) return;
+                  seen.add(key);
+                  list.push(item);
+                };
+                // 已打开的会话优先，其次是最近项目；remote 目标本机没法 bridge，不报。
+                for (const entry of settings.lastWorkspaceSession ?? []) {
+                  if (entry.kind === "local") push({ workspacePath: entry.workspacePath });
+                }
+                for (const workspacePath of settings.recentProjects ?? []) {
+                  if (typeof workspacePath === "string") push({ workspacePath });
+                }
+                return list;
+              },
+              resolveTasks: async () => {
+                const taskService = services.getOptional(IZCodeTaskService);
+                if (!taskService) return [];
+                const settings = await settingService.get();
+                const scopes = [
+                  ...(settings.lastWorkspaceSession ?? [])
+                    .filter((entry) => entry.kind === "local")
+                    .map((entry) => ({ workspacePath: entry.workspacePath })),
+                  ...(settings.recentProjects ?? []).map((workspacePath) => ({ workspacePath })),
+                ];
+                if (scopes.length === 0) return [];
+                const result = await taskService.listTaskList({
+                  kind: "active",
+                  workspaceScopes: scopes,
+                  sortBy: "updated",
+                  limit: 100,
+                });
+                return result.items.map((item) => ({
+                  taskId: item.taskId,
+                  title: item.title || "未命名任务",
+                  workspacePath: item.workspacePath,
+                  ...(item.workspaceIdentity ? { workspaceIdentity: item.workspaceIdentity } : {}),
+                  workspaceLabel: basename(item.workspacePath) || item.workspacePath,
+                  workspaceKind: "local" as const,
+                  createdAt: item.createdAt,
+                  updatedAt: item.updatedAt,
+                  displayStatus: "idle" as const,
+                }));
+              },
               ...(msg.workspacePath &&
               relayWorkspaces.some((item) => item.workspacePath === msg.workspacePath)
                 ? { activeWorkspacePath: msg.workspacePath }

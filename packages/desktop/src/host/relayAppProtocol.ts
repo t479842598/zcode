@@ -18,10 +18,28 @@
  *   bridge(local): { bridgeSessionId, bridgeGeneration?, recoveryId?, kind: "local", workspaceKey, workspacePath, initialTaskId? }
  */
 import { basename } from "node:path";
+import { homedir } from "node:os";
 
 export interface RelayAppPayload {
   zcode_type: string;
   [key: string]: unknown;
+}
+
+/** 手机端 tasks 条目的字段形状（对齐 web-remote 的 zod schema og） */
+export interface RelayAppTask {
+  taskId: string;
+  title: string;
+  workspacePath: string;
+  workspaceIdentity?: string;
+  workspaceLabel: string;
+  workspaceKind: "local" | "remote";
+  createdAt: number;
+  updatedAt: number;
+  provider?: string;
+  unreadAt?: number;
+  displayStatus?: "idle" | "running" | "completed" | "error";
+  pinned?: boolean;
+  archived?: boolean;
 }
 
 export interface RelayAppWorkspace {
@@ -39,6 +57,26 @@ export interface RelayAppResponderContext {
   workspaces: ReadonlyArray<{ workspacePath: string; workspaceIdentity?: string }>;
   /** 手机端先打开哪个；缺省用第一个 */
   activeWorkspacePath?: string;
+  /**
+   * 动态刷新工作区名单。静态的 workspaces 字段只有 main 传下来的 agentWarmupTargets
+   * （上限 3 个），手机端会抱怨「项目没显示全」；这里应指向 settings.recentProjects /
+   * lastWorkspaceSession 这类完整来源。失败时保留旧名单，不影响连接。
+   */
+  resolveWorkspaces?: () => Promise<
+    ReadonlyArray<{ workspacePath: string; workspaceIdentity?: string }>
+  >;
+  /** 取任务/对话列表（手机端的「N 个任务」与对话列表都靠它）；失败按空数组处理 */
+  resolveTasks?: () => Promise<ReadonlyArray<RelayAppTask>>;
+  /**
+   * bridge 打开成功时回传 identity。手机端 b0t 对每个 rpc-frame 都做 zod strict
+   * 校验（bridgeSessionId 必填且需与其一致），所以 host 必须在桥建立后立即
+   * 把 identity 安装到出站 socket 上，否则所有响应帧会被对端静默丢弃。
+   */
+  onBridgeIdentity?: (identity: {
+    bridgeSessionId: string;
+    bridgeGeneration?: number;
+    recoveryId?: string;
+  }) => void;
 }
 
 /** 与官方 resolveWebRemoteControlWorkspaceKey 一致：identity 优先，回退 path */
@@ -51,8 +89,12 @@ export function resolveRelayWorkspaceKey(workspace: {
 
 export interface RelayAppResponder {
   workspaceKey: string;
-  /** 返回要回给手机端的消息；null 表示这条消息不需要响应 */
-  handle(payload: RelayAppPayload): RelayAppPayload | null;
+  /**
+   * 返回要回给手机端的消息；null 表示这条消息不需要响应。
+   * 允许返回 Promise：工作区/任务名单要从 Setting / zcode-task 服务异步取，
+   * 而底层 onMessage 回调是同步的（调用方需自行 await）。
+   */
+  handle(payload: RelayAppPayload): RelayAppPayload | null | Promise<RelayAppPayload | null>;
 }
 
 /** 只声明哪些平台能力没实现，避免手机端在 UI 上误以为可用 */
@@ -67,55 +109,123 @@ const UNSUPPORTED_PLATFORM_METHODS = new Set([
 ]);
 
 export function createRelayAppResponder(context: RelayAppResponderContext): RelayAppResponder {
-  const workspaces: RelayAppWorkspace[] = context.workspaces.map((item) => ({
+  const toWorkspace = (item: {
+    workspacePath: string;
+    workspaceIdentity?: string;
+  }): RelayAppWorkspace => ({
     workspacePath: item.workspacePath,
     ...(item.workspaceIdentity ? { workspaceIdentity: item.workspaceIdentity } : {}),
     label: basename(item.workspacePath) || item.workspacePath,
     kind: "local" as const,
     connectionState: "connected" as const,
-  }));
+  });
+
+  // home 根和 / 不是项目目录：手机端拿到只会「打开工作区」失败，直接不报。
+  const homeDir = homedir();
+  const isUsableWorkspace = (item: { workspacePath: string }): boolean =>
+    Boolean(item.workspacePath) &&
+    item.workspacePath !== "/" &&
+    item.workspacePath !== homeDir;
+
+  let workspaces: RelayAppWorkspace[] = context.workspaces
+    .filter(isUsableWorkspace)
+    .map(toWorkspace);
 
   const active =
     workspaces.find((item) => item.workspacePath === context.activeWorkspacePath) ?? workspaces[0];
   const workspaceKey = active ? resolveRelayWorkspaceKey(active) : "";
-  /** 手机端发过来的 workspaceKey 可能对应列表里任意一个，不只看 active */
-  const keySet = new Set(workspaces.map((item) => resolveRelayWorkspaceKey(item)));
 
-  const listResult = () => ({
+  /**
+   * 每次列表请求都重新取一遍：设置里的项目列表随时会变，而且静态入参只有 3 个。
+   * 取失败就沿用上一份，绝不让一次 Setting 抖动把列表变成空。
+   */
+  const refreshWorkspaces = async (): Promise<void> => {
+    if (!context.resolveWorkspaces) return;
+    try {
+      const next = (await context.resolveWorkspaces()).filter(isUsableWorkspace).map(toWorkspace);
+      if (next.length > 0) workspaces = next;
+    } catch {
+      /* 保留旧名单 */
+    }
+  };
+
+  /**
+   * 手机端对 tasks 条目跑 zod strict 校验：字段不认识或枚举超范围会让**整个**
+   * bootstrap-response 被拒（现象：手机端停在「正在加载工作区」，且不再发
+   * workspace-bridge-open，而 host 日志看起来一切正常）。实测踩过一次：
+   * host 把 task 的 model 当成 provider 下发，而手机端 provider 只接受
+   * claude/opencode/gemini/codex/glm，于是整条响应被丢掉。
+   * 所以这里做一次白名单收敛，host 侧以后再传错也不会拖垮连接。
+   */
+  const TASK_PROVIDERS = new Set(["claude", "opencode", "gemini", "codex", "glm"]);
+  const sanitizeTask = (task: RelayAppTask): RelayAppTask | null => {
+    if (!task || !task.taskId || !task.workspacePath || !task.workspaceLabel) return null;
+    return {
+      taskId: String(task.taskId),
+      title: String(task.title || "未命名任务"),
+      workspacePath: String(task.workspacePath),
+      ...(task.workspaceIdentity ? { workspaceIdentity: String(task.workspaceIdentity) } : {}),
+      workspaceLabel: String(task.workspaceLabel),
+      workspaceKind: task.workspaceKind === "remote" ? "remote" : "local",
+      createdAt: Number(task.createdAt) || Date.now(),
+      updatedAt: Number(task.updatedAt) || Date.now(),
+      ...(task.provider && TASK_PROVIDERS.has(task.provider) ? { provider: task.provider } : {}),
+      ...(typeof task.unreadAt === "number" ? { unreadAt: task.unreadAt } : {}),
+      displayStatus: task.displayStatus ?? "idle",
+      ...(task.pinned === true ? { pinned: true } : {}),
+      ...(task.archived === true ? { archived: true } : {}),
+    };
+  };
+
+  const collectTasks = async (): Promise<RelayAppTask[]> => {
+    if (!context.resolveTasks) return [];
+    try {
+      return (await context.resolveTasks())
+        .map(sanitizeTask)
+        .filter((task): task is RelayAppTask => task !== null);
+    } catch {
+      return [];
+    }
+  };
+
+  const listResult = async () => ({
     workspaces,
-    tasks: [],
+    tasks: await collectTasks(),
     ...(workspaceKey ? { activeWorkspaceKey: workspaceKey } : {}),
   });
 
   return {
     workspaceKey,
 
-    handle(payload: RelayAppPayload): RelayAppPayload | null {
+    handle(payload: RelayAppPayload) {
       switch (payload.zcode_type) {
         case "bootstrap-request": {
-          return {
-            zcode_type: "bootstrap-response",
-            requestId: payload.requestId,
-            success: true,
-            result: {
-              windowControlSessionId: context.deviceSid,
-              workspaces,
-              tasks: [],
-              initialViewState: {
-                ...(workspaceKey ? { activeWorkspaceKey: workspaceKey } : {}),
-                updatedAt: Date.now(),
+          return (async () => {
+            await refreshWorkspaces();
+            return {
+              zcode_type: "bootstrap-response",
+              requestId: payload.requestId,
+              success: true,
+              result: {
+                windowControlSessionId: context.deviceSid,
+                workspaces,
+                tasks: await collectTasks(),
+                initialViewState: {
+                  ...(workspaceKey ? { activeWorkspaceKey: workspaceKey } : {}),
+                  updatedAt: Date.now(),
+                },
               },
-            },
-          };
+            };
+          })();
         }
 
         case "workspace-list-request": {
-          return {
+          return (async () => ({
             zcode_type: "workspace-list-response",
             requestId: payload.requestId,
             success: true,
-            result: listResult(),
-          };
+            result: await listResult(),
+          }))();
         }
 
         case "workspace-bridge-open": {
@@ -128,7 +238,7 @@ export function createRelayAppResponder(context: RelayAppResponderContext): Rela
               : { bridgeGeneration: payload.bridgeGeneration }),
             ...(payload.recoveryId === undefined ? {} : { recoveryId: payload.recoveryId }),
           };
-          if (requested && !keySet.has(requested)) {
+          if (requested && !workspaces.some((item) => resolveRelayWorkspaceKey(item) === requested)) {
             return {
               ...base,
               zcode_type: "workspace-bridge-error",
@@ -147,15 +257,19 @@ export function createRelayAppResponder(context: RelayAppResponderContext): Rela
               error: "no workspace available on this host",
             };
           }
+          const bridgeIdentity = {
+            bridgeSessionId: String(payload.bridgeSessionId ?? ""),
+            ...(typeof payload.bridgeGeneration === "number"
+              ? { bridgeGeneration: payload.bridgeGeneration }
+              : {}),
+            ...(typeof payload.recoveryId === "string" ? { recoveryId: payload.recoveryId } : {}),
+          };
+          context.onBridgeIdentity?.(bridgeIdentity);
           return {
             ...base,
             zcode_type: "workspace-bridge-ready",
             bridge: {
-              bridgeSessionId: payload.bridgeSessionId,
-              ...(payload.bridgeGeneration === undefined
-                ? {}
-                : { bridgeGeneration: payload.bridgeGeneration }),
-              ...(payload.recoveryId === undefined ? {} : { recoveryId: payload.recoveryId }),
+              ...bridgeIdentity,
               kind: "local",
               workspaceKey: resolveRelayWorkspaceKey(target),
               workspacePath: target.workspacePath,
@@ -170,7 +284,7 @@ export function createRelayAppResponder(context: RelayAppResponderContext): Rela
             zcode_type: "workspace-reconnect-response",
             requestId: payload.requestId,
             workspaceKey: requested,
-            success: requested === "" || keySet.has(requested),
+            success: requested === "" || workspaces.some((item) => resolveRelayWorkspaceKey(item) === requested),
           };
         }
 

@@ -40,8 +40,21 @@ export function crc32Hex(bytes: Uint8Array): string {
   return ((crc ^ 0xffffffff) >>> 0).toString(16).padStart(8, "0");
 }
 
+export interface RelayFrameIdentity {
+  bridgeSessionId: string;
+  bridgeGeneration?: number;
+  recoveryId?: string;
+}
+
 export interface RelayDataPayload {
   zcode_type: "rpc-frame" | "rpc-frame-ack";
+  /**
+   * bridge identity。手机端 b0t 用 zod strict schema 校验这三项，缺失或不匹配
+   * 会整帧丢弃（表现为「已配对但永远加载不出工作区」）。
+   */
+  bridgeSessionId?: string;
+  bridgeGeneration?: number;
+  recoveryId?: string;
   seq: number;
   messageSeq: number;
   fragmentIndex: number;
@@ -57,6 +70,7 @@ export function encodeRelayFrames(
   bytes: Uint8Array,
   seq: number,
   messageSeq: number,
+  identity?: RelayFrameIdentity,
 ): RelayDataPayload[] {
   if (bytes.byteLength > RELAY_MAX_MESSAGE_BYTES) {
     throw new Error(`relay message too large: ${bytes.byteLength}`);
@@ -74,6 +88,7 @@ export function encodeRelayFrames(
     );
     frames.push({
       zcode_type: "rpc-frame",
+      ...(identity ?? {}),
       seq,
       messageSeq,
       fragmentIndex: index,
@@ -188,6 +203,8 @@ export function createRelaySocket(
 ): {
   socket: ISocket;
   acceptDataPayload(payload: RelayDataPayload): void;
+  /** 设出站帧的 bridge identity；须在手机端 bridge-open 之后设置，否则帧会被对端丢弃 */
+  setFrameIdentity(identity: RelayFrameIdentity | undefined): void;
 } {
   const onData = new Emitter<VSBuffer>();
   const onClose = new Emitter<void>();
@@ -195,6 +212,7 @@ export function createRelaySocket(
   let seq = 0;
   let messageSeq = 0;
   let closed = false;
+  let frameIdentity: RelayFrameIdentity | undefined;
 
   const assembler = new RelayMessageAssembler(
     (bytes) => onData.fire(VSBuffer.wrap(bytes)),
@@ -208,7 +226,12 @@ export function createRelaySocket(
       onEnd: onEnd.event,
       write(buffer: VSBuffer) {
         if (closed) return;
-        for (const payload of encodeRelayFrames(buffer.buffer, (seq += 1), (messageSeq += 1))) {
+        for (const payload of encodeRelayFrames(
+          buffer.buffer,
+          (seq += 1),
+          (messageSeq += 1),
+          frameIdentity,
+        )) {
           transport.send({ type: "data", payload, client_ts: Date.now() });
         }
       },
@@ -233,6 +256,14 @@ export function createRelaySocket(
     acceptDataPayload(payload) {
       if (closed) return;
       assembler.accept(payload);
+    },
+    setFrameIdentity(identity) {
+      frameIdentity = identity;
+      // 对端 b0t 的 assembler 按物理 seq 连续性校验，且以 bridge 建立为起点。
+      // 本 socket 在桥建立前已经发过东西（Initialize 重发等），不归零会让
+      // 对端看到 seq=4198 而期望 1，于是每帧都被当乱序丢掉（表现为收得到、不处理、不回 ack）。
+      seq = 0;
+      messageSeq = 0;
     },
   };
 }

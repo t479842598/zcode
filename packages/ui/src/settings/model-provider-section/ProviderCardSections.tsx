@@ -22,7 +22,7 @@ import {
   TID_MODEL_PROVIDER_NAME_INPUT,
   testId,
 } from "@zcode/shared";
-import { InfoIcon, LockKeyholeIcon, Plus, Pencil, Trash2, MoreHorizontal } from "lucide-react";
+import { InfoIcon, LockKeyholeIcon, Plus, Pencil, Trash2, MoreHorizontal, Download } from "lucide-react";
 import { Button } from "@/components/ui/button.js";
 import { Input } from "@/components/ui/input.js";
 import {
@@ -38,6 +38,7 @@ import { TECHNICAL_INPUT_ATTRIBUTES } from "@/lib/technicalInputAttributes.js";
 import { ApiKeyInput } from "./ApiKeyInput.js";
 import { ModelRowInput } from "./ProviderFormControls.js";
 import { PresetProviderApiKeyBanner } from "./PresetProviderApiKeyBanner.js";
+import { ProviderModelCatalogDialog } from "./ProviderModelCatalogDialog.js";
 import { type ProviderModelDraftValues } from "@/settings/model-provider-section/ProviderModelMetadata.js";
 import { ProviderModelMetadataDialog } from "@/settings/model-provider-section/ProviderModelMetadataDialog.js";
 import {
@@ -377,6 +378,8 @@ export function ProviderModelsSection({
   const { intl } = useZCodeIntl();
   const { providerSettingsService } = useServices();
   const [addDialogOpen, setAddDialogOpen] = useState(false);
+  const [catalogOpen, setCatalogOpen] = useState(false);
+  const [catalogError, setCatalogError] = useState<string | null>(null);
   const [addSaving, setAddSaving] = useState(false);
   const addSavingRef = useRef(false);
   const [addCommitError, setAddCommitError] = useState<string | null>(null);
@@ -408,6 +411,19 @@ export function ProviderModelsSection({
     setAddCommitError(null);
     setAddDialogOpen(true);
   }, [editor.reset]);
+
+  /**
+   * 「获取模型」拉回来的模型批量加入。用 useRecommendedConfig 让智能配置先把
+   * 上下文 / 最大输出 / 图片支持填好，用户之后仍可在模型编辑器里单独改。
+   */
+  const addModelsFromCatalog = useCallback(
+    async (modelIds: readonly string[]) => {
+      for (const modelId of modelIds) {
+        await onAddModel({ ...createEmptyModel(), modelId, useRecommendedConfig: true });
+      }
+    },
+    [onAddModel],
+  );
 
   const updateAddDraft = (patch: Partial<ProviderModelDraftValues>) => {
     editor.change(patch);
@@ -470,18 +486,46 @@ export function ProviderModelsSection({
         <span className="text-ui-base text-foreground-subtle">
           {intl.formatMessage({ id: "settings.modelProvider.models" })}
         </span>
-        <Button
-          type="button"
-          variant="secondary"
-          size="default"
-          className="rounded-lg"
-          data-testid={TID_MODEL_PROVIDER_ADD_MODEL_BUTTON}
-          onClick={openAddDialog}
-        >
-          <Plus data-icon="inline-start" aria-hidden="true" />
-          {intl.formatMessage({ id: "settings.modelProvider.addModel" })}
-        </Button>
+        <div className="flex items-center gap-2">
+          <Button
+            type="button"
+            variant="secondary"
+            size="default"
+            className="rounded-lg"
+            data-testid="model-provider-fetch-models-button"
+            onClick={() => {
+              setCatalogError(null);
+              setCatalogOpen(true);
+            }}
+          >
+            <Download data-icon="inline-start" aria-hidden="true" />
+            {intl.formatMessage({ id: "settings.modelProvider.fetchModels.button" })}
+          </Button>
+          <Button
+            type="button"
+            variant="secondary"
+            size="default"
+            className="rounded-lg"
+            data-testid={TID_MODEL_PROVIDER_ADD_MODEL_BUTTON}
+            onClick={openAddDialog}
+          >
+            <Plus data-icon="inline-start" aria-hidden="true" />
+            {intl.formatMessage({ id: "settings.modelProvider.addModel" })}
+          </Button>
+        </div>
       </div>
+      <ProviderModelCatalogDialog
+        open={catalogOpen}
+        providerId={providerId}
+        {...(providerName ? { providerName } : {})}
+        existingModelIds={models.map((model) => model.modelId)}
+        listModels={(id) => providerSettingsService.listProviderModels(id)}
+        onAdd={addModelsFromCatalog}
+        onOpenChange={setCatalogOpen}
+      />
+      {catalogError ? (
+        <div className="mb-2 text-ui-base text-destructive break-words">{catalogError}</div>
+      ) : null}
       {models.length > 0 ? (
         <div className="overflow-hidden rounded-lg border border-input-border bg-input">
           <SortableProviderModelList

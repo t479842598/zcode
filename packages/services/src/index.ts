@@ -9,6 +9,7 @@ export {
   type ProviderSettingsProviderView,
   type ProviderSettingsView,
 } from "./model-provider/providerFacadeServices.js";
+export type { ProviderModelCatalogEntry } from "./model-provider/providerModelCatalog.js";
 export {
   createAccountRequestAuthService,
   type IAccountRequestAuthService,
