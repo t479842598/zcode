@@ -7,6 +7,34 @@
   <a href="README.md">简体中文</a> | English
 </p>
 
+> **This is a self-hosted fork of ZCode** (based on upstream [zai-org/ZCode](https://github.com/zai-org/ZCode) v3.14.x). It aims to be fully usable **without the official cloud**: relay, backup, and updates can all be self-hosted, while official sign-in and the free tier remain available.
+
+## Enhancements Over the Official Open-Source Version
+
+### New Capabilities
+
+| Capability | Description | Key implementation |
+| --- | --- | --- |
+| **Self-hosted relay & mobile remote control** | A self-built implementation of the closed-source "mobile remote control". The desktop app connects to your own relay server; after pairing via QR code in a mobile browser, you can browse workspaces, tasks, and conversations, and continue remotely | `packages/desktop/src/host/relay*.ts`, `packages/services/src/webRemoteControl/`, `packages/ui/src/WebRemoteControlDialog.tsx` |
+| **Self-service backup** | Configure your own OSS credentials / server endpoint and encryption passphrase in Settings. Supports manual and scheduled backups with end-to-end encryption; secrets are **write-only** and stored in the system credential store | `packages/services/src/selfBackup/`, `packages/ui/src/settings/BackupSettingsSection.tsx` |
+| **Self-hosted auto-update** | Update manifests and installers are served by your own server; the client updates with one click. The official update mechanism is untouched — only the endpoint source changes. Publishing script included | `scripts/publish-release.mjs`, `.github/workflows/build-installers.yml` |
+| **"Fetch models" for custom providers** | After configuring a Base URL and key, fetch and pick from that provider's model list in one click | `packages/services/src/model-provider/providerModelCatalog.ts`, `ProviderModelCatalogDialog.tsx` |
+
+### Behavior Changes
+
+| Change | Description |
+| --- | --- |
+| No forced sign-in | No longer forces a sign-in page when signed out; guidance appears only when no usable model exists (BYOK / self-hosted endpoint) |
+| Self-hostable model egress | Setting `ZCODE_DISABLE_OFFICIAL_CODING_PLAN_GATEWAY=1` bypasses the official gateway rewrite so requests go straight to the provider endpoint |
+| Telemetry disabled | `ZCODE_TELEMETRY_ENABLED = false`; nothing is reported upstream |
+| De-commercialized | Removed the upgrade entry in the avatar menu and paid-subscription prompts |
+| Official free tier kept | The StartPlan free-tier claim entry is retained and shown only when claimable |
+| Marketing removed | Official community links and feedback forms removed |
+| Thinking blocks stay open | Long answers are no longer collapsed while reading |
+| Mobile layout | The sidebar starts collapsed and expands on tap; the "Index" entry is removed |
+
+---
+
 ZCode is an AI coding workspace with desktop, browser, and terminal interfaces. This repository contains the clients, backend services, shared UI, and Agent CLI and runtime source code.
 
 | Interface                    | Purpose                                                                                   | Development command            |
