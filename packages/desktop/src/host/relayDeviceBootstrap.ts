@@ -10,14 +10,12 @@ import {
   mkdirSync,
   readFileSync,
   writeFileSync,
-  appendFileSync,
-  statSync,
-  renameSync,
 } from "node:fs";
 import { homedir } from "node:os";
 import { dirname, join } from "node:path";
 import type { ServiceCollection } from "@zcode/services";
 import { connectRelayDevice, createPassHash } from "./relayDeviceClient.js";
+import { createRelayDebugLog } from "./relayDebugLog.js";
 import { serveRelaySocketOnServices } from "./relayChannelServer.js";
 import type { RelayAppTask } from "./relayAppProtocol.js";
 
@@ -42,33 +40,6 @@ export function resolveWebRemoteUrl(env: NodeJS.ProcessEnv = process.env): strin
 function identityFilePath(): string {
   const home = process.env.ZCODE_HOME?.trim() || join(homedir(), ".zcode");
   return join(home, "relay-identity.json");
-}
-
-/**
- * 中继桥的诊断日志落盘。
- * 打包后的 app 通常用 `open -a` 启动，stdout 拿不到；而中继链路的问题（连接、
- * 应用层消息、RPC 帧）只有 host 里能看到，所以额外写一份文件便于排查。
- * 默认开启（可用 ZCODE_SELFHOST_RELAY_DEBUG=0 关闭），超过 2MB 自动轮转一次。
- */
-const RELAY_DEBUG_MAX_BYTES = 2 * 1024 * 1024;
-
-function createRelayDebugLog(): ((message: string) => void) | undefined {
-  if (process.env.ZCODE_SELFHOST_RELAY_DEBUG === "0") return undefined;
-  const home = process.env.ZCODE_HOME?.trim() || join(homedir(), ".zcode");
-  const file = join(home, "relay-debug.log");
-  return (message: string) => {
-    try {
-      mkdirSync(home, { recursive: true });
-      try {
-        if (statSync(file).size > RELAY_DEBUG_MAX_BYTES) renameSync(file, `${file}.1`);
-      } catch {
-        /* 首次写入 */
-      }
-      appendFileSync(file, `${new Date().toISOString()} [pid:${process.pid}] ${message}\n`);
-    } catch {
-      /* 诊断日志失败不能影响主流程 */
-    }
-  };
 }
 
 /** 长期密钥落盘复用，保证重启后手机端扫码凭据不失效 */

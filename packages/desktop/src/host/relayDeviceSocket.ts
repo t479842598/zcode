@@ -65,6 +65,18 @@ export interface RelayDataPayload {
   ackMessageSeq?: number;
 }
 
+/**
+ * 这个 data 载荷该不该进分片装配器。
+ *
+ * ACK 只是送达回执：它只有 `ackMessageSeq`，没有 fragmentIndex / fragmentCount /
+ * messageSeq。送进 RelayMessageAssembler 必被 `invalid-fragment-params` 判掉，
+ * 而丢弃诊断是同步写盘的 —— 手机端每发一个 ACK 就白写一行日志（实测 1:1），
+ * 帧风暴时足以拖垮 host 的事件循环。所以只有真正的 rpc-frame 才组装。
+ */
+export function isAssemblableRelayPayload(payload: { zcode_type?: unknown }): boolean {
+  return payload.zcode_type === "rpc-frame";
+}
+
 /** 把一段字节切成中继 data 帧；超过 16MB 直接拒绝（协议上限） */
 export function encodeRelayFrames(
   bytes: Uint8Array,

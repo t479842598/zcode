@@ -93,7 +93,7 @@ async function main() {
     throw new Error(`在 ${DIST_DIR} 未找到匹配 ${PLATFORM} 的产物（${matcher.artifact}）`);
   }
   // 同名旧身份产物（Preview / 旧版本）不应混入本次发布
-  const stale = artifacts.filter((f) => /^ZCode Preview/.test(f));
+  const stale = artifacts.filter((f) => f.startsWith("ZCode Preview"));
   if (stale.length > 0) {
     throw new Error(`产物中混入 Preview 身份文件，拒绝发布：${stale.join(", ")}`);
   }

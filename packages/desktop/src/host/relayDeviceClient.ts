@@ -7,7 +7,11 @@
 import { createHmac, randomBytes } from "node:crypto";
 import WebSocket from "ws";
 import { Emitter, type ISocket } from "@zcode/rpc";
-import { createRelaySocket, type RelayDataPayload } from "./relayDeviceSocket.js";
+import {
+  createRelaySocket,
+  isAssemblableRelayPayload,
+  type RelayDataPayload,
+} from "./relayDeviceSocket.js";
 import {
   createRelayAppResponder,
   type RelayAppResponder,
@@ -281,7 +285,11 @@ export function connectRelayDevice(
             // Initialize 已经送达（ack 不算）。
             rpcFrameEmitter.fire();
           }
-          relaySocket.acceptDataPayload(payload);
+          // ACK 不进装配器：它没有分片字段，进去只会被判非法并同步写一行诊断日志。
+          // 详见 isAssemblableRelayPayload。
+          if (isAssemblableRelayPayload(payload)) {
+            relaySocket.acceptDataPayload(payload);
+          }
           return;
         }
         case "error": {
