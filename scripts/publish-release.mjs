@@ -88,23 +88,29 @@ async function main() {
   }
 
   const files = await readdir(DIST_DIR);
-  const artifacts = files.filter((f) => matcher.artifact.test(f));
-  if (artifacts.length === 0) {
-    throw new Error(`在 ${DIST_DIR} 未找到匹配 ${PLATFORM} 的产物（${matcher.artifact}）`);
-  }
-  // 同名旧身份产物（Preview / 旧版本）不应混入本次发布
-  const stale = artifacts.filter((f) => f.startsWith("ZCode Preview"));
-  if (stale.length > 0) {
-    throw new Error(`产物中混入 Preview 身份文件，拒绝发布：${stale.join(", ")}`);
-  }
   if (!files.includes(matcher.manifest)) {
     throw new Error(`未找到更新清单 ${matcher.manifest}（electron-builder 应自动生成）`);
   }
 
+  // 先读版本号：dist 里会残留历史版本的产物，必须只发布与清单版本一致的那一套，
+  // 否则旧版本会被一并上传（实测：发 3.14.2 时把 3.14.1 也传了），
+  // 而且「清理旧产物」的 keep 名单会把它们当成本次产物保护起来、永远清不掉。
   const manifestRaw = await readFile(join(DIST_DIR, matcher.manifest), "utf8");
   const version = /^version:\s*(.+)$/m.exec(manifestRaw)?.[1]?.trim();
   if (!version) {
     throw new Error(`${matcher.manifest} 中未找到 version 字段`);
+  }
+
+  const artifacts = files.filter((f) => matcher.artifact.test(f) && f.includes(version));
+  if (artifacts.length === 0) {
+    throw new Error(
+      `在 ${DIST_DIR} 未找到 ${version} 匹配 ${PLATFORM} 的产物（${matcher.artifact}）`,
+    );
+  }
+  // 同名旧身份产物（Preview）不应混入本次发布
+  const stale = artifacts.filter((f) => f.startsWith("ZCode Preview"));
+  if (stale.length > 0) {
+    throw new Error(`产物中混入 Preview 身份文件，拒绝发布：${stale.join(", ")}`);
   }
 
   console.log(`平台：${PLATFORM}`);
