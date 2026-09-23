@@ -91,8 +91,9 @@ export async function prepareTasksIndexStorage(
   } finally {
     try {
       db.close();
-    } catch (error) {
-      if (!failure) throw error;
+    } catch (closeError) {
+      // finally 里 throw 会顶掉 try 块的原异常，只在没有失败时把关闭错误抛出去。
+      if (!failure) throw closeError;
     }
   }
   markTasksStorageMigrated(path);

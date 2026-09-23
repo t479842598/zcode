@@ -18,7 +18,13 @@ import {
 import { app, BrowserWindow, ipcMain, Menu } from "electron";
 import pkg, { CancellationToken } from "electron-updater";
 import semver from "semver";
+import { join } from "node:path";
 import { logger } from "./logger.js";
+import {
+  downloadManifestArtifact,
+  resolveArtifactFileName,
+  resolveManualUpdateCacheDir,
+} from "./macosManualUpdateDownloader.js";
 import {
   detectSignatureTeamId,
   installMacUpdateFromZip,
@@ -40,6 +46,13 @@ let readyUpdateReleaseNotes: PostUpdateReleaseNotesPayload | null = null;
 let readyUpdateRestoredFromPendingReleaseNotes = false;
 /** 下载好的更新包路径（自研安装器解压用；Squirrel 路径不需要） */
 let readyUpdateFilePath: string | null = null;
+/**
+ * 发现新版时缓存的 zip 直链。
+ * macOS 未签名构建不能走 electron-updater 的 downloadUpdate（MacUpdater 会在下载完成时
+ * 立刻把包交给 Squirrel 校验并失败），必须由我们自己的下载器拿这个 URL 去下。
+ */
+let availableUpdateArtifactUrl: string | null = null;
+let availableUpdateArtifactSize: number | null = null;
 let menuLocale: Locale = DEFAULT_LOCALE;
 let manualCheckWebContentsId: number | null = null;
 let pendingPostUpdateReleaseNotes: PostUpdateReleaseNotesPayload | null = null;
@@ -953,6 +966,19 @@ function clearReadyUpdateState() {
   readyUpdateFilePath = null;
 }
 
+/** 从 manifest 的 files[] 里挑出 macOS 用的 zip（不要 blockmap/dmg） */
+function resolveMacZipArtifact(info: UpdateDownloadedInfoLike): { url: string; size: number | null } | null {
+  for (const file of info.files ?? []) {
+    const url = file?.url?.trim();
+    if (url && url.toLowerCase().endsWith(".zip") && !url.toLowerCase().endsWith(".blockmap")) {
+      const size = (file as { size?: unknown }).size;
+      return { url, size: typeof size === "number" ? size : null };
+    }
+  }
+  const direct = info.path?.trim();
+  return direct ? { url: direct, size: null } : null;
+}
+
 /**
  * 从 update-downloaded 事件里取出下载好的 zip 路径。
  * electron-updater 在不同平台把路径放在 `path` 或 `files[].url`，两者都兜一下。
@@ -975,6 +1001,65 @@ async function shouldUseManualMacInstall(): Promise<boolean> {
   if (process.platform !== "darwin" || !app.isPackaged) return false;
   const teamId = await detectSignatureTeamId(app.getAppPath());
   return teamId === null;
+}
+
+/**
+ * macOS 未签名构建的自研下载：完全不碰 electron-updater / Squirrel，
+ * 直接按 manifest 的 zip 直链下到自己的缓存目录。
+ */
+async function downloadUpdateManually(
+  version: string,
+  artifactUrl: string,
+  artifactSize: number | null,
+): Promise<void> {
+  const fileName = resolveArtifactFileName(artifactUrl);
+  const destination = join(resolveManualUpdateCacheDir(app.getPath("home")), fileName);
+  logger.warn(`[auto-update] 未签名构建：改用自研下载器 version=${version} → ${destination}`);
+
+  const { bytes } = await downloadManifestArtifact({
+    url: artifactUrl,
+    size: artifactSize,
+    destination,
+    onProgress: (progress) => {
+      setAutoUpdaterMenuState(
+        buildDownloadingUpdateState(
+          version,
+          downloadingUpdateReleaseNotes ?? availableUpdateReleaseNotes,
+          downloadingUpdateChannel ?? availableUpdateChannel,
+          progress.percent,
+        ),
+      );
+      notifyForceAutoUpdate({
+        kind: "downloading",
+        version,
+        progress: String(Math.floor(progress.percent)),
+      });
+    },
+  });
+
+  readyUpdateVersion = version;
+  readyUpdateReleaseNotes = downloadingUpdateReleaseNotes ?? availableUpdateReleaseNotes;
+  readyUpdateChannel = downloadingUpdateChannel ?? availableUpdateChannel;
+  readyUpdateRestoredFromPendingReleaseNotes = false;
+  readyUpdateFilePath = destination;
+  clearAvailableUpdateState();
+  clearDownloadingUpdateState();
+  logger.info(`[auto-update] 自研下载完成 version=${version} bytes=${bytes}`);
+  setAutoUpdaterMenuState(buildUpdateDownloadedState(version));
+  notifyForceAutoUpdate({ kind: "ready", version });
+
+  if (options.settingService && readyUpdateReleaseNotes) {
+    void persistPendingPostUpdateReleaseNotes(
+      options.settingService,
+      readyUpdateReleaseNotes,
+      "manual-download-complete",
+    ).catch((error) => {
+      logger.error("[auto-update] persist post-update release notes failed:", error);
+    });
+  }
+  for (const win of BrowserWindow.getAllWindows()) {
+    syncReadyUpdateToWindow(win);
+  }
 }
 
 async function installReadyUpdateManually(): Promise<void> {
@@ -1242,7 +1327,7 @@ async function clearSkippedUpdateVersionForManualCheck(
   }
 }
 
-function downloadAvailableUpdate(reason = "renderer") {
+async function downloadAvailableUpdate(reason = "renderer") {
   if (!canUseAutoUpdaterInCurrentRuntime()) {
     logger.info(`[auto-update] skip ${reason} download: not packaged`);
     return;
@@ -1282,6 +1367,26 @@ function downloadAvailableUpdate(reason = "renderer") {
 
   const cancellationToken = new CancellationToken();
   downloadCancellationToken = cancellationToken;
+
+  // macOS 未签名：electron-updater 的 downloadUpdate 会在下载完成时立刻交给 Squirrel.Mac
+  // 校验签名（SQRLCodeSignatureErrorDomain）并把 ready 清掉，quitAndInstall 根本走不到。
+  // 这里整体换成自研下载 + 自研安装。
+  if (await shouldUseManualMacInstall()) {
+    try {
+      const artifactUrl = availableUpdateArtifactUrl;
+      if (!artifactUrl) throw new Error("manifest 里没有可用的 zip 直链");
+      await downloadUpdateManually(downloadingUpdateVersion, artifactUrl, availableUpdateArtifactSize);
+    } catch (error) {
+      handleAutoUpdateFailure(error, "manual mac download failed");
+    } finally {
+      if (downloadCancellationToken === cancellationToken) {
+        downloadCancellationToken = null;
+      }
+      cancellationToken.dispose();
+    }
+    return;
+  }
+
   void autoUpdater
     .downloadUpdate(cancellationToken)
     .catch((error) => {
@@ -1607,6 +1712,10 @@ export async function initAutoUpdater(options: InitAutoUpdaterOptions = {}): Pro
 
   autoUpdater.on("update-available", (info: UpdateDownloadedInfoLike) => {
     logger.info(`[auto-update] new version available: ${info.version}`);
+    // macOS 未签名构建要靠这个直链走自研下载（electron-updater 的下载会当场被 Squirrel 拒）
+    const macZip = resolveMacZipArtifact(info);
+    availableUpdateArtifactUrl = macZip?.url ?? null;
+    availableUpdateArtifactSize = macZip?.size ?? null;
     const infoChannel = readUpdateInfoReleaseChannel(info);
     if (shouldIgnoreStaleAvailableUpdate(infoChannel)) {
       // 用户切换“接收 preview 版本”时，旧通道的 manifest 请求可能晚于新请求返回。
