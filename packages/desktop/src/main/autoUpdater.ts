@@ -15,10 +15,10 @@ import {
   type UpdateCheckResultPayload,
   type UpdateStatePayload,
 } from "@zcode/shared";
-import { app, BrowserWindow, ipcMain, Menu, net } from "electron";
+import { app, BrowserWindow, ipcMain, Menu } from "electron";
 import pkg, { CancellationToken } from "electron-updater";
 import semver from "semver";
-import { join } from "node:path";
+import { dirname, join } from "node:path";
 import { logger } from "./logger.js";
 import {
   downloadManifestArtifact,
@@ -996,11 +996,19 @@ function resolveDownloadedUpdateFilePath(info: UpdateDownloadedInfoLike): string
 /**
  * 未签名（拿不到 TeamIdentifier）时 Squirrel.Mac 一定拒绝安装，改走自研安装器。
  * 判据是实时的：一旦以后用 Developer ID 签名，会自动回到官方 Squirrel 流程。
+ *
+ * 注意探测对象必须是 .app bundle 本体：app.getAppPath() 给的是 Resources/app.asar，
+ * 那个文件本身从来没被单独签名，拿它判断会永远得到「未签名」。
  */
 async function shouldUseManualMacInstall(): Promise<boolean> {
   if (process.platform !== "darwin" || !app.isPackaged) return false;
-  const teamId = await detectSignatureTeamId(app.getAppPath());
+  const teamId = await detectSignatureTeamId(resolveAppBundlePath());
   return teamId === null;
+}
+
+/** 从可执行文件路径上溯到 .app：/Applications/ZCode.app/Contents/MacOS/ZCode → /Applications/ZCode.app */
+function resolveAppBundlePath(): string {
+  return dirname(dirname(dirname(app.getPath("exe"))));
 }
 
 /**
@@ -1020,9 +1028,6 @@ async function downloadUpdateManually(
     url: artifactUrl,
     size: artifactSize,
     destination,
-    // 必须用 Electron 的 net.fetch：它走 Chromium 网络栈、遵循系统代理。
-    // Node 自带的 fetch(undici) 不走代理，直连 GitHub 实测只有 ~4.5KB/s，会超时失败。
-    fetchImpl: net.fetch as unknown as typeof fetch,
     onProgress: (progress) => {
       setAutoUpdaterMenuState(
         buildDownloadingUpdateState(
