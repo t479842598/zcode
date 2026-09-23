@@ -54,6 +54,8 @@ export interface DownloadManifestArtifactParams {
    */
   netSession?: NetSessionLike;
   onProgress?: (progress: DownloadProgress) => void;
+  /** 诊断日志钩子（生产传 logger.warn），用于定位下载卡住的具体阶段 */
+  onDebug?: (message: string) => void;
   /**
    * 下载实现注入点，**仅供测试**；生产不传，走下面的 `net.request`。
    * 保留它是为了让测试能在纯 Node 下跑，不必拉起 Electron。
@@ -122,6 +124,7 @@ async function downloadWithNetRequest(
   onProgress: ((progress: DownloadProgress) => void) | undefined,
   expectedSize: number | null,
   netSession: NetSessionLike | undefined,
+  onDebug: ((message: string) => void) | undefined,
 ): Promise<number> {
   return new Promise<number>((resolve, reject) => {
     const startedAt = Date.now();
@@ -145,7 +148,7 @@ async function downloadWithNetRequest(
       file.end(() => {
         if (onProgress) {
           const elapsed = Math.max(0.001, (Date.now() - startedAt) / 1000);
-          onProgress({ transferred, total: transferred, percent: 100, bytesPerSecond: transferred / elapsed });
+          emitProgress(onProgress, { transferred, total: transferred, percent: 100, bytesPerSecond: transferred / elapsed });
         }
         resolve(transferred);
       });
@@ -155,8 +158,13 @@ async function downloadWithNetRequest(
     // GitHub Releases 会 302 到 objects.githubusercontent.com，交给 Chromium 自己跟。
     // session 必须传：不传就走 defaultSession，而它被 desktopNetworkPolicy 钉成 direct（无代理），
     // 直连 GitHub 会卡在首个 TCP 包。
+    const debug = (m: string) => onDebug?.(m);
+    debug(`net.request start url=${url.slice(0, 80)} hasSession=${netSession ? "yes" : "no"}`);
     const request = net.request({ url, redirect: "follow", session: netSession });
     request.on("response", (response) => {
+      debug(
+        `response status=${response.statusCode} len=${String(response.headers["content-length"])} session=${netSession ? "custom" : "default"}`,
+      );
       if (response.statusCode >= 400) {
         fail(new Error(`下载更新包失败：HTTP ${response.statusCode} ${url}`));
         return;
@@ -170,17 +178,27 @@ async function downloadWithNetRequest(
         if (!onProgress || now - lastEmit < 200) return;
         lastEmit = now;
         const elapsed = Math.max(0.001, (now - startedAt) / 1000);
-        onProgress({
+        emitProgress(onProgress, {
           transferred,
           total,
           percent: total > 0 ? Math.min(100, (transferred / total) * 100) : 0,
           bytesPerSecond: transferred / elapsed,
         });
       });
-      response.on("end", finish);
-      response.on("error", fail);
+      response.on("end", () => {
+        debug(`response end transferred=${transferred}`);
+        finish();
+      });
+      response.on("error", (e) => {
+        debug(`response error ${String(e)}`);
+        fail(e);
+      });
+      response.on("aborted", () => debug("response aborted"));
     });
-    request.on("error", fail);
+    request.on("error", (e) => {
+      debug(`request error ${String(e)}`);
+      fail(e);
+    });
     request.end();
 
     file.on("error", fail);
@@ -213,7 +231,7 @@ async function downloadWithFetch(
       if (!onProgress || now - lastEmit < 200) continue;
       lastEmit = now;
       const elapsed = Math.max(0.001, (now - startedAt) / 1000);
-      onProgress({
+      emitProgress(onProgress, {
         transferred,
         total,
         percent: total > 0 ? Math.min(100, (transferred / total) * 100) : 0,
@@ -251,6 +269,7 @@ export async function downloadManifestArtifact(
           onProgress,
           params.size ?? null,
           params.netSession,
+          params.onDebug,
         )
       : (() => {
           throw new Error("缺少 net 模块：生产环境必须由调用方注入 Electron 的 net");
@@ -272,9 +291,28 @@ export async function downloadManifestArtifact(
   await rename(partPath, destination);
   const actual = (await stat(destination)).size;
   if (onProgress) {
-    onProgress({ transferred: actual, total: actual, percent: 100, bytesPerSecond: 0 });
+    emitProgress(onProgress, { transferred: actual, total: actual, percent: 100, bytesPerSecond: 0 });
   }
   return { path: destination, bytes: actual };
+}
+
+/**
+ * 安全地发进度事件。
+ *
+ * 进度回调由调用方提供（autoUpdater 里会更新菜单状态、通知渲染层），
+ * 它跑在 net.request 的 `data` 事件里：一旦抛错会变成 unhandledRejection，
+ * 响应流也会停在当前 chunk 不再推进（实测 .part 卡在 2747 字节、无 error 无 end）。
+ * 进度只是 UI 装饰，任何失败都不该影响下载本身。
+ */
+function emitProgress(
+  onProgress: (progress: DownloadProgress) => void,
+  progress: DownloadProgress,
+): void {
+  try {
+    onProgress(progress);
+  } catch {
+    // 进度回调失败不影响下载本身，静默继续
+  }
 }
 
 /** 流式计算 sha512（177MB 全读进内存没必要） */

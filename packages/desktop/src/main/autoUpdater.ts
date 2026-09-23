@@ -1085,6 +1085,7 @@ async function downloadUpdateManually(
     // net.request 不传 session 就用它，直连 GitHub 会卡在首个 TCP 包。
     // 这个 partition 跟随系统代理，与内置浏览器出口一致。
     netSession: await resolveManualUpdateSession(),
+    onDebug: (message) => logger.warn(`[auto-update] ${message}`),
     onProgress: (progress) => {
       setAutoUpdaterMenuState(
         buildDownloadingUpdateState(
