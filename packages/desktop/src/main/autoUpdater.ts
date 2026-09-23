@@ -19,6 +19,11 @@ import { app, BrowserWindow, ipcMain, Menu } from "electron";
 import pkg, { CancellationToken } from "electron-updater";
 import semver from "semver";
 import { logger } from "./logger.js";
+import {
+  detectSignatureTeamId,
+  installMacUpdateFromZip,
+  type InstallMacUpdateResult,
+} from "./macosManualUpdateInstaller.js";
 import { getElectronReleasePlatform, ManifestUpdateProvider } from "./manifestUpdateProvider.js";
 const { autoUpdater } = pkg;
 
@@ -33,6 +38,8 @@ const DEV_AUTO_UPDATE_VERSION_SWITCH = "--zcode-auto-update-dev-version";
 let readyUpdateVersion: string | null = null;
 let readyUpdateReleaseNotes: PostUpdateReleaseNotesPayload | null = null;
 let readyUpdateRestoredFromPendingReleaseNotes = false;
+/** 下载好的更新包路径（自研安装器解压用；Squirrel 路径不需要） */
+let readyUpdateFilePath: string | null = null;
 let menuLocale: Locale = DEFAULT_LOCALE;
 let manualCheckWebContentsId: number | null = null;
 let pendingPostUpdateReleaseNotes: PostUpdateReleaseNotesPayload | null = null;
@@ -461,6 +468,18 @@ async function quitAndInstallUpdate(rejectUnavailable = false) {
       logger.info("[auto-update] dev update install fallback: relaunch app");
       app.relaunch();
       app.exit(0);
+      return;
+    }
+
+    // macOS 未签名构建：Squirrel.Mac 会因 SQRLCodeSignatureErrorDomain 拒绝安装，
+    // 这里改用自研安装器（解压 zip → 原子替换 /Applications 下的 app → 重启）。
+    if (await shouldUseManualMacInstall()) {
+      try {
+        await installReadyUpdateManually();
+      } catch (error) {
+        handleAutoUpdateFailure(error, "manual mac install failed");
+        if (rejectUnavailable) throw error;
+      }
       return;
     }
 
@@ -931,6 +950,47 @@ function clearReadyUpdateState() {
   readyUpdateReleaseNotes = null;
   readyUpdateChannel = null;
   readyUpdateRestoredFromPendingReleaseNotes = false;
+  readyUpdateFilePath = null;
+}
+
+/**
+ * 从 update-downloaded 事件里取出下载好的 zip 路径。
+ * electron-updater 在不同平台把路径放在 `path` 或 `files[].url`，两者都兜一下。
+ */
+function resolveDownloadedUpdateFilePath(info: UpdateDownloadedInfoLike): string | null {
+  const direct = info.path?.trim();
+  if (direct) return direct;
+  for (const file of info.files ?? []) {
+    const url = file?.url?.trim();
+    if (url && url.toLowerCase().endsWith(".zip")) return url;
+  }
+  return null;
+}
+
+/**
+ * 未签名（拿不到 TeamIdentifier）时 Squirrel.Mac 一定拒绝安装，改走自研安装器。
+ * 判据是实时的：一旦以后用 Developer ID 签名，会自动回到官方 Squirrel 流程。
+ */
+async function shouldUseManualMacInstall(): Promise<boolean> {
+  if (process.platform !== "darwin" || !app.isPackaged) return false;
+  const teamId = await detectSignatureTeamId(app.getAppPath());
+  return teamId === null;
+}
+
+async function installReadyUpdateManually(): Promise<void> {
+  const version = readyUpdateVersion;
+  logger.warn(
+    `[auto-update] 未签名构建：改用自研安装器 version=${version ?? "unknown"} zip=${readyUpdateFilePath ?? "(none)"}`,
+  );
+  const result: InstallMacUpdateResult = await installMacUpdateFromZip({
+    zipPath: readyUpdateFilePath,
+    currentVersion: app.getVersion(),
+  });
+  logger.info(
+    `[auto-update] 自研安装器完成，已安装到 ${result.installedPath}（旧版备份 ${result.backupPath}），准备重启`,
+  );
+  app.relaunch();
+  app.exit(0);
 }
 
 function clearPersistedPostUpdateReleaseNotesForVersion(version: string, reason: string) {
@@ -1681,6 +1741,8 @@ export async function initAutoUpdater(options: InitAutoUpdaterOptions = {}): Pro
     readyUpdateChannel = downloadingUpdateChannel ?? availableUpdateChannel;
     readyUpdateReleaseNotes =
       toPostUpdateReleaseNotesPayload(info) ?? downloadingUpdateReleaseNotes;
+    // 自研安装器要用它解压 zip：Squirrel 在未签名构建上必然失败（SQRLCodeSignatureErrorDomain）
+    readyUpdateFilePath = resolveDownloadedUpdateFilePath(info);
     clearAvailableUpdateState();
     clearDownloadingUpdateState();
     logger.info(

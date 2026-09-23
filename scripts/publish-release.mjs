@@ -35,6 +35,16 @@ const DIST_DIR = join(repoRoot, "packages/desktop/dist");
 const HOST = process.env.ZCODE_RELEASE_HOST ?? "root@182.92.127.90";
 const REMOTE_ROOT = process.env.ZCODE_RELEASE_ROOT ?? "/www/wwwroot/zcode.tang74.top/releases";
 const SSH_PASS = process.env.ZCODE_RELEASE_SSH_PASS ?? "TANGlidong24ban!";
+/**
+ * 安装包实际托管在 GitHub Releases；服务器只放几百字节的 manifest。
+ *
+ * 原因：阿里云 ECS 出网带宽只有 ~2Mbps（实测 232 KB/s），177MB 要下 12 分钟；
+ * GitHub 走系统代理实测 ~10 MB/s（17 秒）。而「检测更新」只有一个几百字节的请求，
+ * 放自建服务器更快更稳，所以拆开：**清单走自建，安装包走 GitHub**。
+ */
+const GITHUB_REPO = process.env.ZCODE_RELEASE_GITHUB_REPO ?? "t479842598/zcode";
+/** 默认不再往服务器传安装包（只传 manifest）；置 1 可回退到旧行为 */
+const UPLOAD_INSTALLERS = process.env.ZCODE_RELEASE_UPLOAD_INSTALLERS === "1";
 
 const argv = process.argv.slice(2);
 const DRY_RUN = argv.includes("--dry-run");
@@ -78,6 +88,92 @@ function run(bin, args, opts = {}) {
   return result.stdout ?? "";
 }
 
+/**
+ * 把 manifest 里 files[].url 的相对文件名改写为 GitHub Releases 绝对地址。
+ * 只改 url 不改 path：electron-updater 按 files[] 下载，path 保持相对是被实测跑通的形状。
+ */
+function rewriteManifestUrls(manifestRaw, baseUrl) {
+  return manifestRaw
+    .split("\n")
+    .map((line) => {
+      const m = /^(\s*-?\s*url:\s*)(\S+)$/.exec(line);
+      if (!m) return line;
+      const [, prefix, url] = m;
+      if (/^https?:\/\//.test(url)) return line;
+      return `${prefix}${baseUrl}/${url}`;
+    })
+    .join("\n");
+}
+
+/**
+ * 把更新说明写进 manifest。
+ *
+ * 对齐官方 manifest 的形状（实测 zcode.z.ai 的 manifest）：
+ *   releaseNotes: |-
+ *       ## 新功能
+ *
+ *       - 一条一句纯文字
+ * 用块标量 `|-` + 4 空格缩进，不把 markdown 里换行/缩进写成转义字符串；
+ * 客户端 autoUpdater 解析后会在更新按钮 hover 与更新弹窗里按 markdown 渲染。
+ * 注意：不要写 markdown 表格 —— 弹窗宽度有限，表格会折行得很难看，官方也只用列表。
+ */
+function appendReleaseNotes(manifest, notes) {
+  if (!notes) return manifest;
+  const base = manifest.endsWith("\n") ? manifest : `${manifest}\n`;
+  const body = notes
+    .split("\n")
+    .map((line) => (line.trim().length > 0 ? `    ${line}` : ""))
+    .join("\n");
+  return `${base}releaseNotes: |-\n${body}\n`;
+}
+
+/** 优先环境变量，其次本机 git 凭据助手（macOS keychain 里存的 github token） */
+function resolveGithubToken() {
+  const fromEnv = (process.env.GITHUB_TOKEN ?? process.env.GH_TOKEN ?? "").trim();
+  if (fromEnv) return fromEnv;
+  const r = spawnSync("git", ["credential", "fill"], {
+    input: "protocol=https\nhost=github.com\n\n",
+    encoding: "utf8",
+  });
+  return /^password=(.+)$/m.exec(r.stdout ?? "")?.[1]?.trim() ?? "";
+}
+
+/**
+ * 取 GitHub Release 正文作为更新说明（单一事实来源就是 GitHub）。
+ * 可用 ZCODE_RELEASE_NOTES_FILE 指定本地文件覆盖；都取不到就不写 releaseNotes（不报错）。
+ */
+async function resolveReleaseNotes(tag) {
+  const file = process.env.ZCODE_RELEASE_NOTES_FILE;
+  if (file && existsSync(file)) {
+    console.log(`• releaseNotes 来自本地文件 ${file}`);
+    return (await readFile(file, "utf8")).trim();
+  }
+  const token = resolveGithubToken();
+  if (!token) {
+    console.log("• 未找到 GitHub token，manifest 不含 releaseNotes");
+    return "";
+  }
+  try {
+    const res = await fetch(`https://api.github.com/repos/${GITHUB_REPO}/releases/tags/${tag}`, {
+      headers: {
+        Authorization: `Bearer ${token}`,
+        Accept: "application/vnd.github+json",
+        "User-Agent": "zcode-selfhost-release",
+      },
+    });
+    if (!res.ok) {
+      console.log(`• GitHub API ${res.status}，manifest 不含 releaseNotes`);
+      return "";
+    }
+    const body = ((await res.json()).body ?? "").trim();
+    console.log(`• releaseNotes 来自 GitHub Release（${body.length} 字符）`);
+    return body;
+  } catch (error) {
+    console.log(`• 取 GitHub Release 失败（${error.message}），manifest 不含 releaseNotes`);
+    return "";
+  }
+}
+
 async function main() {
   const matcher = PLATFORM_MATCHERS[PLATFORM];
   if (!matcher) {
@@ -119,8 +215,22 @@ async function main() {
   console.log(`清单：${matcher.manifest}`);
   console.log(`目标：${HOST}:${REMOTE_ROOT}/${PLATFORM}/`);
 
+  // 生成客户端清单：安装包 URL 指向 GitHub Releases，并注入更新说明。
+  // 服务器只托管这个几百字节的清单（检测更新走自建、毫秒级且稳定）。
+  const tag = `v${version}`;
+  const ghBase = `https://github.com/${GITHUB_REPO}/releases/download/${tag}`;
+  const releaseNotes = await resolveReleaseNotes(tag);
+  const manifestForClient = appendReleaseNotes(rewriteManifestUrls(manifestRaw, ghBase), releaseNotes);
+  const manifestPath = join(DIST_DIR, `${PLATFORM}-manifest.yml`);
+  const { writeFile } = await import("node:fs/promises");
+  await writeFile(manifestPath, manifestForClient, "utf8");
+  console.log(`清单下载基址：${ghBase}`);
+  console.log(`更新说明：${releaseNotes ? `${releaseNotes.length} 字符` : "（无）"}`);
+
   if (DRY_RUN) {
-    console.log("\n[dry-run] 跳过实际上传");
+    console.log("\n--- 客户端清单预览 ---");
+    console.log(manifestForClient);
+    console.log("[dry-run] 跳过实际上传");
     return;
   }
 
@@ -138,8 +248,24 @@ async function main() {
   run(sshpass, ["-p", SSH_PASS, "ssh", ...sshOpts, HOST, `mkdir -p ${remoteDir}`]);
   console.log("• 远端目录就绪");
 
-  // 1.5 清理旧版本产物（只留本次版本；服务端磁盘有限）
-  const keepPatterns = [...artifacts, matcher.manifest, "manifest.yml"];
+  // 2. 可选：把安装包也传到服务器（默认不传：安装包已托管在 GitHub，
+  //    阿里云 2Mbps 出网带宽撑不住 177MB 的分发）
+  if (UPLOAD_INSTALLERS) {
+    for (const name of [...artifacts, matcher.manifest]) {
+      const localPath = join(DIST_DIR, name);
+      const size = (await stat(localPath)).size;
+      console.log(`• 上传 ${name}（${(size / 1024 / 1024).toFixed(1)} MiB）…`);
+      run(sshpass, ["-p", SSH_PASS, "scp", ...sshOpts, "-C", localPath, `${HOST}:${remoteDir}/`]);
+    }
+  }
+
+  // 3. 上传客户端清单（几百字节）
+  run(sshpass, ["-p", SSH_PASS, "scp", ...sshOpts, manifestPath, `${HOST}:${remoteDir}/manifest.yml`]);
+  console.log("• 已上传更新清单 manifest.yml");
+
+  // 4. 清理服务端：只留 manifest.yml。安装包走 GitHub 后，服务器不再需要存它们
+  //    （每个版本约 350MB，磁盘只有 40G）。
+  const keepPatterns = UPLOAD_INSTALLERS ? [...artifacts, matcher.manifest, "manifest.yml"] : ["manifest.yml"];
   const keepList = keepPatterns.map((n) => `'${n.replace(/'/g, "'\\''")}'`).join(" ");
   const pruneOut = run(sshpass, [
     "-p",
@@ -150,41 +276,15 @@ async function main() {
     `cd ${remoteDir} && for f in *; do [ -f "$f" ] || continue; keep=0; for k in ${keepList}; do [ "$f" = "$k" ] && keep=1; done; [ "$keep" = 0 ] && rm -f "$f" && echo "  已删 $f"; done; true`,
   ]);
   const pruned = (pruneOut ?? "").trim();
-  console.log(pruned ? `• 清理旧产物：\n${pruned}` : "• 无旧产物需清理");
+  console.log(pruned ? `• 清理服务端旧文件：\n${pruned}` : "• 服务端无需清理");
 
-  // 2. 上传产物与清单（-C 压缩，大包明显更快）
-  for (const name of [...artifacts, matcher.manifest]) {
-    const localPath = join(DIST_DIR, name);
-    const size = (await stat(localPath)).size;
-    console.log(`• 上传 ${name}（${(size / 1024 / 1024).toFixed(1)} MiB）…`);
-    run(sshpass, ["-p", SSH_PASS, "scp", ...sshOpts, "-C", localPath, `${HOST}:${remoteDir}/`]);
-  }
-
-  // 3. 生成更新接口数据：把 manifest 里的相对 url 改写为可下载的绝对地址
-  const baseUrl = process.env.ZCODE_RELEASE_BASE_URL ?? "https://zcode.tang74.top/releases";
-  const manifestForClient = manifestRaw
-    .split("\n")
-    .map((line) => {
-      const m = /^(\s*-?\s*url:\s*)(\S+)$/.exec(line);
-      if (!m) return line;
-      const [, prefix, url] = m;
-      if (/^https?:\/\//.test(url)) return line;
-      return `${prefix}${baseUrl}/${PLATFORM}/${url}`;
-    })
-    .join("\n");
-
-  const manifestPath = join(DIST_DIR, `${PLATFORM}-manifest.yml`);
-  const { writeFile } = await import("node:fs/promises");
-  await writeFile(manifestPath, manifestForClient, "utf8");
-  run(sshpass, ["-p", SSH_PASS, "scp", ...sshOpts, manifestPath, `${HOST}:${remoteDir}/manifest.yml`]);
-  console.log("• 已上传更新清单 manifest.yml");
-
-  // 4. 修正属主，保证 nginx 可读
+  // 5. 修正属主，保证 nginx 可读
   run(sshpass, ["-p", SSH_PASS, "ssh", ...sshOpts, HOST, `chown -R www:www ${REMOTE_ROOT}`]);
   console.log("• 属主已修正");
 
   console.log(`\n✓ 发布完成：${version}（${PLATFORM}）`);
-  console.log(`  更新接口：https://zcode.tang74.top/api/v1/releases/electron/manifest?platform=${PLATFORM}&channel=1`);
+  console.log(`  检测更新：https://zcode.tang74.top/api/v1/releases/electron/manifest?platform=${PLATFORM}&channel=1`);
+  console.log(`  下载安装包：${ghBase}/`);
 }
 
 main().catch((error) => {
