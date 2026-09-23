@@ -15,7 +15,7 @@ import {
   type UpdateCheckResultPayload,
   type UpdateStatePayload,
 } from "@zcode/shared";
-import { app, BrowserWindow, ipcMain, Menu } from "electron";
+import { app, BrowserWindow, ipcMain, Menu, net } from "electron";
 import pkg, { CancellationToken } from "electron-updater";
 import semver from "semver";
 import { join } from "node:path";
@@ -1020,6 +1020,9 @@ async function downloadUpdateManually(
     url: artifactUrl,
     size: artifactSize,
     destination,
+    // 必须用 Electron 的 net.fetch：它走 Chromium 网络栈、遵循系统代理。
+    // Node 自带的 fetch(undici) 不走代理，直连 GitHub 实测只有 ~4.5KB/s，会超时失败。
+    fetchImpl: net.fetch as unknown as typeof fetch,
     onProgress: (progress) => {
       setAutoUpdaterMenuState(
         buildDownloadingUpdateState(

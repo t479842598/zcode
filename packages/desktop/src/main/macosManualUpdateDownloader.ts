@@ -36,8 +36,31 @@ export interface DownloadManifestArtifactParams {
   /** 落盘路径（最终文件名） */
   destination: string;
   onProgress?: (progress: DownloadProgress) => void;
-  /** 覆盖 fetch（测试用） */
+  /**
+   * 下载实现。**生产环境必须传 Electron 的 `net.fetch`**：
+   * 它走 Chromium 网络栈、遵循系统代理；而 Node 自带的 fetch(undici) 不走代理，
+   * 实测直连 GitHub 只有 ~4.5KB/s，会直接超时（electron-updater 用的就是 net，所以能到 10MB/s）。
+   */
   fetchImpl?: typeof fetch;
+}
+
+/**
+ * 把任意抛出物转成可读错误。
+ * Electron 主进程里 fetch 失败往往抛的是非 Error（或 message 为空的 DOMException），
+ * 直接 `{}` 进日志会让线上问题没法定位。
+ */
+export function describeDownloadError(error: unknown): Error {
+  if (error instanceof Error && error.message) return error;
+  const cause = (error as { cause?: unknown } | null)?.cause;
+  const detail = [
+    (error as { name?: string } | null)?.name,
+    (error as { message?: string } | null)?.message,
+    cause instanceof Error ? `cause: ${cause.message}` : typeof cause === "string" ? `cause: ${cause}` : undefined,
+    (error as { code?: string } | null)?.code,
+  ]
+    .filter((part): part is string => typeof part === "string" && part.length > 0)
+    .join(" | ");
+  return new Error(detail || `下载失败：${String(error)}`);
 }
 
 /** 下载到 `destination`，先写 `.part` 再原子改名，避免中断留下半个包 */
@@ -51,7 +74,13 @@ export async function downloadManifestArtifact(
   await mkdir(dirname(destination), { recursive: true });
   await rm(partPath, { force: true });
 
-  const response = await fetchImpl(url, { redirect: "follow" });
+  const response = await (async () => {
+    try {
+      return await fetchImpl(url, { redirect: "follow" });
+    } catch (error) {
+      throw describeDownloadError(error);
+    }
+  })();
   if (!response.ok || !response.body) {
     throw new Error(`下载更新包失败：HTTP ${response.status} ${url}`);
   }
