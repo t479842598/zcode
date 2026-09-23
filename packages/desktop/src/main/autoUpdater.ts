@@ -1000,11 +1000,31 @@ function resolveMacZipArtifact(
  */
 const MANUAL_UPDATE_PARTITION = "zcode-manual-update";
 let manualUpdateSession: ReturnType<typeof session.fromPartition> | null = null;
-function resolveManualUpdateSession(): ReturnType<typeof session.fromPartition> {
-  if (!manualUpdateSession) {
-    manualUpdateSession = session.fromPartition(MANUAL_UPDATE_PARTITION);
+let manualUpdateSessionReady: Promise<ReturnType<typeof session.fromPartition>> | null = null;
+
+/**
+ * 取（并初始化）自研下载器专用 Session。
+ *
+ * 为什么要显式 setProxy({mode:"system"})：
+ * 新 partition 的默认代理模式**不是** system，实测下载会卡在首个 TCP 包（.part 停在 2.7KB），
+ * 与 defaultSession 被 desktopNetworkPolicy 钉成 direct 时的表现一致。
+ * 这里跟随 OS 代理设置（macOS 网络偏好里的 127.0.0.1:7897），与内置浏览器出口同款，
+ * 不受 shell 的 HTTP_PROXY 影响，因此不违反「不继承 shell 环境变量」的边界。
+ */
+function resolveManualUpdateSession(): Promise<ReturnType<typeof session.fromPartition>> {
+  if (!manualUpdateSessionReady) {
+    manualUpdateSessionReady = (async () => {
+      const target = session.fromPartition(MANUAL_UPDATE_PARTITION);
+      try {
+        await target.setProxy({ mode: "system" });
+      } catch (error) {
+        logger.warn("[auto-update] 自研下载器设置系统代理失败，将按默认代理模式继续:", error);
+      }
+      manualUpdateSession = target;
+      return target;
+    })();
   }
-  return manualUpdateSession;
+  return manualUpdateSessionReady;
 }
 
 /**
@@ -1064,7 +1084,7 @@ async function downloadUpdateManually(
     // 专用 session：defaultSession 被 desktopNetworkPolicy 钉成 direct（无代理），
     // net.request 不传 session 就用它，直连 GitHub 会卡在首个 TCP 包。
     // 这个 partition 跟随系统代理，与内置浏览器出口一致。
-    netSession: resolveManualUpdateSession(),
+    netSession: await resolveManualUpdateSession(),
     onProgress: (progress) => {
       setAutoUpdaterMenuState(
         buildDownloadingUpdateState(
