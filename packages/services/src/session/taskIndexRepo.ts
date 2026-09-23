@@ -529,6 +529,11 @@ export class TaskIndexRepo {
       this.db.exec("PRAGMA journal_mode = WAL");
       this.db.exec("PRAGMA synchronous = NORMAL");
     }
+    // 上次进程被杀/崩溃时正在跑的会话不会走到终态收敛，task_status 会永远停在 running
+    // （手机端用 displayStatus === "running" 判断运行中，会把很久以前就结束的对话
+    // 一直显示成「正在运行」）。索引库按数据目录一份、由本机进程独占驱动，
+    // 所以进程启动时任何 running 都必然是残留。
+    this.clearOrphanedRunningStatus();
     // Worker 已完成该路径的原始准备，业务连接不再重复全表修复。
     if (isTasksStoragePrepared(path, this.db)) return;
     if (!isTasksStorageMigrated(path, this.db)) runTasksDatabaseMigrations(this.db);
@@ -543,6 +548,34 @@ export class TaskIndexRepo {
    * join 只补投影列——rowToMeta 以列兜底即可生效，下次 syncTaskMeta 会自动回填 meta_json。
    * 全新安装时 off_peak_tasks 可能尚未由 OffPeakTaskRepo 建表，需 guard。
    */
+  /**
+   * 清掉上次进程遗留的 running 状态（幂等，每次 bootstrap 自愈）。
+   *
+   * 会话跑到终态时由 zcodeTaskIndexSyncer.applyTerminalTransition 把 status 收敛成
+   * completed/error；但进程被杀（崩溃/强退）时这一步不会执行，task_status 会永远停在
+   * running。索引库由本机进程独占驱动，所以启动时任何 running 都必然是残留。
+   *
+   * 清成 NULL（= 未知结果）而不是 completed/error：不编造真实结果。
+   * 不清 updated_at：残留清理不应改变列表排序。
+   */
+  private clearOrphanedRunningStatus(): void {
+    const database = this.getDatabase();
+    // 全新安装时 tasks 表由后续迁移创建，此处还没有表。
+    const hasTasksTable = database
+      .prepare(`SELECT 1 FROM sqlite_master WHERE type = 'table' AND name = 'tasks'`)
+      .get();
+    if (!hasTasksTable) {
+      return;
+    }
+    const result = database
+      .prepare(`UPDATE tasks SET task_status = NULL WHERE task_status = 'running'`)
+      .run();
+    const cleared = Number(result.changes ?? 0);
+    if (cleared > 0) {
+      logger.warn(undefined, `清理进程遗留的 running 任务状态 count=${cleared}`);
+    }
+  }
+
   private backfillOffPeakTaskMarkers(): void {
     const database = this.getDatabase();
     const hasOffPeakTable = database
