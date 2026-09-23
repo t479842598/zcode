@@ -33,12 +33,41 @@ export interface DownloadManifestArtifactParams {
   size?: number | null;
   /** 落盘路径（最终文件名） */
   destination: string;
+  /**
+   * Electron 的 `net` 模块，**生产必须传**。
+   *
+   * 为什么不在本文件里 `import { net } from "electron"` / `await import("electron")`：
+   * 打包后动态 import 会解析到 npm 的 electron 包（导出的是二进制路径字符串，不是内置模块），
+   * `net` 为 undefined → 下载 0.6 秒就抛错。静态 import 又会让纯 Node 测试加载本文件时挂掉。
+   * 所以由调用方（autoUpdater 已静态 import electron）注入。
+   */
+  netModule?: NetRequestFactory;
   onProgress?: (progress: DownloadProgress) => void;
   /**
    * 下载实现注入点，**仅供测试**；生产不传，走下面的 `net.request`。
    * 保留它是为了让测试能在纯 Node 下跑，不必拉起 Electron。
    */
   fetchImpl?: typeof fetch;
+}
+
+/** 只用到 net.request，收敛类型避免把整个 Electron 类型拖进来 */
+export interface NetRequestFactory {
+  request: (options: { url: string; redirect?: "follow" | "error" }) => ElectronRequestLike;
+}
+
+interface ElectronRequestLike {
+  on: (event: "error", handler: (error: unknown) => void) => void;
+  end: () => void;
+}
+
+interface ElectronResponseLike {
+  statusCode: number;
+  headers: Record<string, string | string[] | undefined>;
+  on: {
+    (event: "data", handler: (chunk: Buffer) => void): void;
+    (event: "end", handler: () => void): void;
+    (event: "error", handler: (error: unknown) => void): void;
+  };
 }
 
 /**
@@ -68,15 +97,15 @@ export function describeDownloadError(error: unknown): Error {
  * 两者虽同属 Chromium 网络栈但行为不同。
  * 也不用 Node 的 fetch(undici)：它不遵循系统代理，直连 GitHub 只有 0.14MB/s。
  *
- * `electron` 用动态 import：这个文件会被纯 Node 的测试直接加载，静态 import 会解析失败。
+ * `net` 由调用方注入（见 `netModule` 注释），不在这里 import electron。
  */
 async function downloadWithNetRequest(
+  net: NetRequestFactory,
   url: string,
   destination: string,
   onProgress: ((progress: DownloadProgress) => void) | undefined,
   expectedSize: number | null,
 ): Promise<number> {
-  const { net } = await import("electron");
   return new Promise<number>((resolve, reject) => {
     const startedAt = Date.now();
     let transferred = 0;
@@ -115,8 +144,7 @@ async function downloadWithNetRequest(
       }
       const declared = Number(response.headers["content-length"] ?? 0);
       if (declared > 0) total = declared;
-      response.on("data", (chunk: Buffer) => {
-        transferred += chunk.length;
+      response.on("data", (chunk: Buffer) => {        transferred += chunk.length;
         file.write(chunk);
         const now = Date.now();
         // 进度最多每 200ms 一次：渲染层按百分比渲染，发太密只是徒增 IPC
@@ -196,7 +224,11 @@ export async function downloadManifestArtifact(
 
   const bytes = params.fetchImpl
     ? await downloadWithFetch(params.fetchImpl, url, partPath, onProgress, params.size ?? null)
-    : await downloadWithNetRequest(url, partPath, onProgress, params.size ?? null);
+    : params.netModule
+      ? await downloadWithNetRequest(params.netModule, url, partPath, onProgress, params.size ?? null)
+      : (() => {
+          throw new Error("缺少 net 模块：生产环境必须由调用方注入 Electron 的 net");
+        })();
 
   if (params.size && bytes !== params.size) {
     await rm(partPath, { force: true }).catch(() => {});

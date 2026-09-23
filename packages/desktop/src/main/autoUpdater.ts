@@ -15,12 +15,13 @@ import {
   type UpdateCheckResultPayload,
   type UpdateStatePayload,
 } from "@zcode/shared";
-import { app, BrowserWindow, ipcMain, Menu } from "electron";
+import { app, BrowserWindow, ipcMain, Menu, net } from "electron";
 import pkg, { CancellationToken } from "electron-updater";
 import semver from "semver";
 import { dirname, join } from "node:path";
 import { logger } from "./logger.js";
 import {
+  describeDownloadError,
   downloadManifestArtifact,
   resolveArtifactFileName,
   resolveManualUpdateCacheDir,
@@ -1028,6 +1029,9 @@ async function downloadUpdateManually(
     url: artifactUrl,
     size: artifactSize,
     destination,
+    // net 从主进程注入：本文件静态 import 了 electron，打包后能拿到真正的内置模块；
+    // 在 downloader 里动态 import 会解析到 npm 的 electron 包（导出路径字符串），net 是 undefined。
+    netModule: net,
     onProgress: (progress) => {
       setAutoUpdaterMenuState(
         buildDownloadingUpdateState(
@@ -1138,7 +1142,9 @@ function shouldIgnoreCancelledDownloadError(error: unknown): boolean {
 }
 
 function handleAutoUpdateFailure(error: unknown, source: string) {
-  const message = error instanceof Error ? error.message : String(error);
+  // 不要用 String(error)：Electron 主进程里非 Error 抛出物会格式化成 "{}"，
+  // 线上日志只剩空对象没法定位。describeDownloadError 会把 name/message/cause/code 都摊平。
+  const message = describeDownloadError(error).message;
   const failedDownload =
     menuState.kind === "download-progress"
       ? {
