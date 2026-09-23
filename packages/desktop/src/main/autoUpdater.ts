@@ -15,7 +15,7 @@ import {
   type UpdateCheckResultPayload,
   type UpdateStatePayload,
 } from "@zcode/shared";
-import { app, BrowserWindow, ipcMain, Menu, net } from "electron";
+import { app, BrowserWindow, ipcMain, Menu, net, session } from "electron";
 import pkg, { CancellationToken } from "electron-updater";
 import semver from "semver";
 import { dirname, join } from "node:path";
@@ -54,6 +54,7 @@ let readyUpdateFilePath: string | null = null;
  */
 let availableUpdateArtifactUrl: string | null = null;
 let availableUpdateArtifactSize: number | null = null;
+let availableUpdateArtifactSha512: string | null = null;
 let menuLocale: Locale = DEFAULT_LOCALE;
 let manualCheckWebContentsId: number | null = null;
 let pendingPostUpdateReleaseNotes: PostUpdateReleaseNotesPayload | null = null;
@@ -968,16 +969,42 @@ function clearReadyUpdateState() {
 }
 
 /** 从 manifest 的 files[] 里挑出 macOS 用的 zip（不要 blockmap/dmg） */
-function resolveMacZipArtifact(info: UpdateDownloadedInfoLike): { url: string; size: number | null } | null {
+function resolveMacZipArtifact(
+  info: UpdateDownloadedInfoLike,
+): { url: string; size: number | null; sha512: string | null } | null {
   for (const file of info.files ?? []) {
     const url = file?.url?.trim();
     if (url && url.toLowerCase().endsWith(".zip") && !url.toLowerCase().endsWith(".blockmap")) {
       const size = (file as { size?: unknown }).size;
-      return { url, size: typeof size === "number" ? size : null };
+      // sha512 来自 manifest，交给自研下载器做完整性校验：
+      // 安装器会直接替换 /Applications 下的 app，只校验 size 挡不住同大小的替换包。
+      const sha512 = (file as { sha512?: unknown }).sha512;
+      return {
+        url,
+        size: typeof size === "number" ? size : null,
+        sha512: typeof sha512 === "string" && sha512.length > 0 ? sha512 : null,
+      };
     }
   }
   const direct = info.path?.trim();
-  return direct ? { url: direct, size: null } : null;
+  return direct ? { url: direct, size: null, sha512: null } : null;
+}
+
+/**
+ * 自研下载器专用 Session。
+ *
+ * 不能复用 defaultSession：desktopNetworkPolicy 明确把 defaultSession 钉成 `direct`
+ * （不让本机系统代理影响 ZCode 自身后端流量），而 net.request 不传 session 时走的就是它，
+ * 于是 GitHub Releases 直连只收到首个 TCP 包（.part 停在 2.7KB）。
+ * 独立 partition 不经过那段策略，跟随系统代理，与内置浏览器出口同款。
+ */
+const MANUAL_UPDATE_PARTITION = "zcode-manual-update";
+let manualUpdateSession: ReturnType<typeof session.fromPartition> | null = null;
+function resolveManualUpdateSession(): ReturnType<typeof session.fromPartition> {
+  if (!manualUpdateSession) {
+    manualUpdateSession = session.fromPartition(MANUAL_UPDATE_PARTITION);
+  }
+  return manualUpdateSession;
 }
 
 /**
@@ -1020,6 +1047,7 @@ async function downloadUpdateManually(
   version: string,
   artifactUrl: string,
   artifactSize: number | null,
+  artifactSha512: string | null,
 ): Promise<void> {
   const fileName = resolveArtifactFileName(artifactUrl);
   const destination = join(resolveManualUpdateCacheDir(app.getPath("home")), fileName);
@@ -1028,10 +1056,15 @@ async function downloadUpdateManually(
   const { bytes } = await downloadManifestArtifact({
     url: artifactUrl,
     size: artifactSize,
+    sha512: artifactSha512,
     destination,
     // net 从主进程注入：本文件静态 import 了 electron，打包后能拿到真正的内置模块；
     // 在 downloader 里动态 import 会解析到 npm 的 electron 包（导出路径字符串），net 是 undefined。
     netModule: net,
+    // 专用 session：defaultSession 被 desktopNetworkPolicy 钉成 direct（无代理），
+    // net.request 不传 session 就用它，直连 GitHub 会卡在首个 TCP 包。
+    // 这个 partition 跟随系统代理，与内置浏览器出口一致。
+    netSession: resolveManualUpdateSession(),
     onProgress: (progress) => {
       setAutoUpdaterMenuState(
         buildDownloadingUpdateState(
@@ -1389,7 +1422,12 @@ async function downloadAvailableUpdate(reason = "renderer") {
     try {
       const artifactUrl = availableUpdateArtifactUrl;
       if (!artifactUrl) throw new Error("manifest 里没有可用的 zip 直链");
-      await downloadUpdateManually(downloadingUpdateVersion, artifactUrl, availableUpdateArtifactSize);
+      await downloadUpdateManually(
+        downloadingUpdateVersion,
+        artifactUrl,
+        availableUpdateArtifactSize,
+        availableUpdateArtifactSha512,
+      );
     } catch (error) {
       handleAutoUpdateFailure(error, "manual mac download failed");
     } finally {
@@ -1730,6 +1768,7 @@ export async function initAutoUpdater(options: InitAutoUpdaterOptions = {}): Pro
     const macZip = resolveMacZipArtifact(info);
     availableUpdateArtifactUrl = macZip?.url ?? null;
     availableUpdateArtifactSize = macZip?.size ?? null;
+    availableUpdateArtifactSha512 = macZip?.sha512 ?? null;
     const infoChannel = readUpdateInfoReleaseChannel(info);
     if (shouldIgnoreStaleAvailableUpdate(infoChannel)) {
       // 用户切换“接收 preview 版本”时，旧通道的 manifest 请求可能晚于新请求返回。

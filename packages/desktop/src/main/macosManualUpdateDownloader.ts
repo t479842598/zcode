@@ -16,6 +16,8 @@
 import { createWriteStream } from "node:fs";
 import { mkdir, rename, rm, stat } from "node:fs/promises";
 import { dirname, join } from "node:path";
+import { createHash } from "node:crypto";
+import { createReadStream } from "node:fs";
 
 export interface DownloadProgress {
   transferred: number;
@@ -42,6 +44,15 @@ export interface DownloadManifestArtifactParams {
    * 所以由调用方（autoUpdater 已静态 import electron）注入。
    */
   netModule?: NetRequestFactory;
+  /**
+   * 下载专用的 Electron Session（`session.fromPartition`）。
+   *
+   * 必须与 defaultSession 分开：主进程的 desktopNetworkPolicy 把 defaultSession 钉成
+   * `direct`（永不使用代理，为了不被本机系统代理左右 ZCode 自身后端流量），
+   * 而 GitHub Releases 在国内直连只有几十 KB/s，实测卡在首个 TCP 包（.part 停在 2.7KB）。
+   * 传一个独立 partition 的 session（跟随系统代理）才能跑满带宽。
+   */
+  netSession?: NetSessionLike;
   onProgress?: (progress: DownloadProgress) => void;
   /**
    * 下载实现注入点，**仅供测试**；生产不传，走下面的 `net.request`。
@@ -52,7 +63,12 @@ export interface DownloadManifestArtifactParams {
 
 /** 只用到 net.request，收敛类型避免把整个 Electron 类型拖进来 */
 export interface NetRequestFactory {
-  request: (options: { url: string; redirect?: "follow" | "error" }) => ElectronRequestLike;
+  request: (options: { url: string; redirect?: "follow" | "error"; session?: unknown }) => ElectronRequestLike;
+}
+
+/** 下载专用 session 只需能传进 net.request */
+export interface NetSessionLike {
+  readonly __brand?: "electron-session";
 }
 
 interface ElectronRequestLike {
@@ -105,6 +121,7 @@ async function downloadWithNetRequest(
   destination: string,
   onProgress: ((progress: DownloadProgress) => void) | undefined,
   expectedSize: number | null,
+  netSession: NetSessionLike | undefined,
 ): Promise<number> {
   return new Promise<number>((resolve, reject) => {
     const startedAt = Date.now();
@@ -136,7 +153,9 @@ async function downloadWithNetRequest(
 
     // redirect 只能用 "follow"：net.request 不支持 "manual"，传 manual 会直接报 "Redirect was cancelled"。
     // GitHub Releases 会 302 到 objects.githubusercontent.com，交给 Chromium 自己跟。
-    const request = net.request({ url, redirect: "follow" });
+    // session 必须传：不传就走 defaultSession，而它被 desktopNetworkPolicy 钉成 direct（无代理），
+    // 直连 GitHub 会卡在首个 TCP 包。
+    const request = net.request({ url, redirect: "follow", session: netSession });
     request.on("response", (response) => {
       if (response.statusCode >= 400) {
         fail(new Error(`下载更新包失败：HTTP ${response.statusCode} ${url}`));
@@ -225,7 +244,14 @@ export async function downloadManifestArtifact(
   const bytes = params.fetchImpl
     ? await downloadWithFetch(params.fetchImpl, url, partPath, onProgress, params.size ?? null)
     : params.netModule
-      ? await downloadWithNetRequest(params.netModule, url, partPath, onProgress, params.size ?? null)
+      ? await downloadWithNetRequest(
+          params.netModule,
+          url,
+          partPath,
+          onProgress,
+          params.size ?? null,
+          params.netSession,
+        )
       : (() => {
           throw new Error("缺少 net 模块：生产环境必须由调用方注入 Electron 的 net");
         })();
@@ -234,12 +260,33 @@ export async function downloadManifestArtifact(
     await rm(partPath, { force: true }).catch(() => {});
     throw new Error(`更新包大小不符：期望 ${params.size}，实际 ${bytes}`);
   }
+  // sha512 必须校验：安装器会拿这个包直接替换 /Applications 下的 app，
+  // 只校验 size 挡不住「同样大小但内容被中间人换掉」的情况。
+  if (params.sha512) {
+    const actual = await sha512Base64(partPath);
+    if (actual !== params.sha512) {
+      await rm(partPath, { force: true }).catch(() => {});
+      throw new Error(`更新包校验失败：sha512 不匹配（期望 ${params.sha512.slice(0, 16)}…，实际 ${actual.slice(0, 16)}…）`);
+    }
+  }
   await rename(partPath, destination);
   const actual = (await stat(destination)).size;
   if (onProgress) {
     onProgress({ transferred: actual, total: actual, percent: 100, bytesPerSecond: 0 });
   }
   return { path: destination, bytes: actual };
+}
+
+/** 流式计算 sha512（177MB 全读进内存没必要） */
+async function sha512Base64(filePath: string): Promise<string> {
+  const hash = createHash("sha512");
+  await new Promise<void>((resolve, reject) => {
+    const stream = createReadStream(filePath);
+    stream.on("data", (chunk) => hash.update(chunk));
+    stream.on("end", () => resolve());
+    stream.on("error", reject);
+  });
+  return hash.digest("base64");
 }
 
 /** 未签名构建的 zip 缓存目录（与 electron-updater 的 updaterCacheDirName 区分开，避免互相干扰） */
