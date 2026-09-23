@@ -3,8 +3,12 @@
  *
  * 背景（2026-09-23）：中继网页里有一条 9.7 天前就已结束的对话一直显示「正在运行」。
  * 根因是会话跑到终态时由 zcodeTaskIndexSyncer.applyTerminalTransition 把 status 收敛成
- * completed/error，而进程被杀（崩溃/强退）时这一步不会执行，task_status 就永久停在
- * running —— 手机端用 `displayStatus === "running"` 判断运行中，于是永远显示运行态。
+ * completed/error，而进程被杀（崩溃/强退）时这一步不会执行，状态就永久停在 running。
+ *
+ * ⚠️ 关键坑：状态存两处 —— `task_status` 标量列 与 `meta_json.status`，而 rowToMeta
+ * **以 meta_json 为权威**（标量列只覆盖 taskId/workspace/identity/unreadAt/cron/offPeak/
+ * titleOverridden，不含 status）。第一版对账只清了列，结果被 meta_json 里的旧 running
+ * 盖回来，手机端照样显示运行中。所以这里必须覆盖「只有 meta_json 是 running」的用例。
  *
  * 跑法：cd upstream/packages/services && NODE_OPTIONS="--import tsx" node --test test/*.test.ts
  */
@@ -17,55 +21,100 @@ import test from "node:test";
 
 import { TaskIndexRepo } from "../src/session/taskIndexRepo.js";
 
+interface SeedRow {
+  id: string;
+  /** task_status 标量列 */
+  status: string | null;
+  /** meta_json.status（rowToMeta 的权威来源）；undefined = 不写该键 */
+  metaStatus?: string | null;
+  updatedAt: number;
+}
+
 /** 用真实 schema 建库（让 repo 自己跑迁移），再塞入指定状态的行 */
-async function seed(path: string, rows: Array<{ id: string; status: string | null; updatedAt: number }>) {
+async function seed(path: string, rows: SeedRow[]) {
   const repo = new TaskIndexRepo(path);
   await repo.ensureReady();
   repo.close();
 
   const db = new DatabaseSync(path);
   for (const row of rows) {
+    const meta: Record<string, unknown> = {
+      taskId: row.id,
+      traceId: `trace-${row.id}`,
+      title: `task ${row.id}`,
+      workspacePath: "/w",
+      createdAt: 1000,
+      updatedAt: row.updatedAt,
+      mode: "build",
+    };
+    if (row.metaStatus !== undefined && row.metaStatus !== null) meta["status"] = row.metaStatus;
     db.prepare(
-      `INSERT INTO tasks (workspace_key, workspace_path, task_id, title, task_status, mode, created_at, updated_at)
-       VALUES ('/w', '/w', ?, ?, ?, 'build', 1000, ?)`,
-    ).run(row.id, `task ${row.id}`, row.status, row.updatedAt);
+      `INSERT INTO tasks (workspace_key, workspace_path, task_id, title, task_status, mode, created_at, updated_at, meta_json)
+       VALUES ('/w', '/w', ?, ?, ?, 'build', 1000, ?, ?)`,
+    ).run(row.id, `task ${row.id}`, row.status, row.updatedAt, JSON.stringify(meta));
   }
   db.close();
 }
 
-function readStatuses(path: string): Map<string, { status: string | null; updatedAt: number }> {
+interface RowState {
+  status: string | null;
+  metaStatus: unknown;
+  updatedAt: number;
+  title: string;
+}
+
+function readRows(path: string): Map<string, RowState> {
   const db = new DatabaseSync(path);
-  const out = new Map<string, { status: string | null; updatedAt: number }>();
-  for (const row of db.prepare("SELECT task_id, task_status, updated_at FROM tasks").all()) {
+  const out = new Map<string, RowState>();
+  for (const row of db.prepare("SELECT * FROM tasks").all()) {
+    let metaStatus: unknown;
+    try {
+      metaStatus = (JSON.parse(String(row["meta_json"] ?? "{}")) as { status?: unknown }).status;
+    } catch {
+      metaStatus = "<unparsable>";
+    }
     out.set(String(row["task_id"]), {
       status: row["task_status"] === null ? null : String(row["task_status"]),
+      metaStatus,
       updatedAt: Number(row["updated_at"]),
+      title: String(row["title"]),
     });
   }
   db.close();
   return out;
 }
 
-test("启动时清掉进程遗留的 running，且不动终态与未知态", async () => {
+/** 打开一次索引库 = 模拟一次进程启动 */
+async function restart(path: string): Promise<void> {
+  const repo = new TaskIndexRepo(path);
+  await repo.ensureReady();
+  repo.close();
+}
+
+test("启动时同时清掉列与 meta_json 里的 running，且不动终态/未知态", async () => {
   const dir = await mkdtemp(join(tmpdir(), "task-index-orphan-"));
   const path = join(dir, "tasks-index.sqlite");
   try {
     await seed(path, [
-      { id: "orphan-running", status: "running", updatedAt: 111 },
-      { id: "done", status: "completed", updatedAt: 222 },
-      { id: "failed", status: "error", updatedAt: 333 },
-      { id: "unknown", status: null, updatedAt: 444 },
+      // 列与 meta_json 都是 running（真实崩溃残留的形状）
+      { id: "both-running", status: "running", metaStatus: "running", updatedAt: 111 },
+      // ⚠️ 只有 meta_json 是 running：第一版对账就是漏了这种，被它盖回来
+      { id: "meta-only-running", status: null, metaStatus: "running", updatedAt: 112 },
+      { id: "done", status: "completed", metaStatus: "completed", updatedAt: 222 },
+      { id: "failed", status: "error", metaStatus: "error", updatedAt: 333 },
+      { id: "unknown", status: null, metaStatus: null, updatedAt: 444 },
     ]);
 
-    // 打开索引库 = 模拟一次进程启动
-    const repo = new TaskIndexRepo(path);
-    await repo.ensureReady();
-    repo.close();
+    await restart(path);
 
-    const after = readStatuses(path);
-    assert.equal(after.get("orphan-running")!.status, null, "遗留 running 应被清成 NULL（未知结果）");
-    assert.equal(after.get("orphan-running")!.updatedAt, 111, "清理不应改动 updated_at（否则列表会重排）");
+    const after = readRows(path);
+    assert.equal(after.get("both-running")!.status, null, "列里的 running 应被清");
+    assert.equal(after.get("both-running")!.metaStatus, undefined, "meta_json 里的 running 也应被清");
+    assert.equal(after.get("meta-only-running")!.metaStatus, undefined, "只有 meta_json 是 running 时也必须清");
+    assert.equal(after.get("both-running")!.updatedAt, 111, "清理不应改动 updated_at（否则列表会重排）");
+    assert.equal(after.get("both-running")!.title, "task both-running", "不应破坏 meta_json 其它字段");
     assert.equal(after.get("done")!.status, "completed", "completed 不能被改");
+    assert.equal(after.get("done")!.metaStatus, "completed", "completed 的 meta_json 不能被改");
     assert.equal(after.get("failed")!.status, "error", "error 不能被改");
     assert.equal(after.get("unknown")!.status, null, "未知态保持未知");
   } finally {
@@ -77,20 +126,19 @@ test("对账是幂等的：再次启动不产生额外变化", async () => {
   const dir = await mkdtemp(join(tmpdir(), "task-index-orphan-"));
   const path = join(dir, "tasks-index.sqlite");
   try {
-    await seed(path, [{ id: "orphan-running", status: "running", updatedAt: 111 }]);
+    await seed(path, [
+      { id: "both-running", status: "running", metaStatus: "running", updatedAt: 111 },
+      { id: "meta-only-running", status: null, metaStatus: "running", updatedAt: 112 },
+    ]);
 
-    const first = new TaskIndexRepo(path);
-    await first.ensureReady();
-    first.close();
-    const afterFirst = readStatuses(path);
-
-    const second = new TaskIndexRepo(path);
-    await second.ensureReady();
-    second.close();
-    const afterSecond = readStatuses(path);
+    await restart(path);
+    const afterFirst = readRows(path);
+    await restart(path);
+    const afterSecond = readRows(path);
 
     assert.deepEqual(afterSecond, afterFirst, "第二次启动不应再改动任何行");
-    assert.equal(afterSecond.get("orphan-running")!.status, null);
+    assert.equal(afterSecond.get("both-running")!.status, null);
+    assert.equal(afterSecond.get("meta-only-running")!.metaStatus, undefined);
   } finally {
     await rm(dir, { recursive: true, force: true });
   }
@@ -100,7 +148,7 @@ test("运行中写入的 running 不会被同进程内的后续 ensureReady 误�
   const dir = await mkdtemp(join(tmpdir(), "task-index-orphan-"));
   const path = join(dir, "tasks-index.sqlite");
   try {
-    await seed(path, [{ id: "live", status: null, updatedAt: 111 }]);
+    await seed(path, [{ id: "live", status: null, metaStatus: null, updatedAt: 111 }]);
 
     // 进程内：先启动（对账跑完），随后才把任务置为 running
     const repo = new TaskIndexRepo(path);
@@ -114,7 +162,7 @@ test("运行中写入的 running 不会被同进程内的后续 ensureReady 误�
     await repo.ensureReady();
     repo.close();
 
-    assert.equal(readStatuses(path).get("live")!.status, "running", "同进程内的 running 不该被清");
+    assert.equal(readRows(path).get("live")!.status, "running", "同进程内的 running 不该被清");
   } finally {
     await rm(dir, { recursive: true, force: true });
   }

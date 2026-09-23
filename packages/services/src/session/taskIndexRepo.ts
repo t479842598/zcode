@@ -478,6 +478,19 @@ function compareGroupTasks(
   return taskNodeKey(left).localeCompare(taskNodeKey(right));
 }
 
+/**
+ * 从 meta_json 里读出 status。
+ * rowToMeta 以 meta_json 为权威（标量列不覆盖 status），所以对账时必须以它为准。
+ * 解析失败按未知处理。
+ */
+function parseMetaJsonStatus(metaJson: unknown): unknown {
+  try {
+    return (JSON.parse(String(metaJson ?? "{}")) as { status?: unknown }).status;
+  } catch {
+    return undefined;
+  }
+}
+
 export class TaskIndexRepo {
   constructor(
     private readonly startupDbPath?: string,
@@ -567,13 +580,45 @@ export class TaskIndexRepo {
     if (!hasTasksTable) {
       return;
     }
-    const result = database
-      .prepare(`UPDATE tasks SET task_status = NULL WHERE task_status = 'running'`)
-      .run();
-    const cleared = Number(result.changes ?? 0);
-    if (cleared > 0) {
-      logger.warn(undefined, `清理进程遗留的 running 任务状态 count=${cleared}`);
+    // 列与 meta_json 两处都要清：rowToMeta 以 meta_json 为权威，标量列只覆盖
+    // taskId / workspace / identity / unreadAt / cron / offPeak / titleOverridden，
+    // **不含 status**。只清 task_status 列会被 meta_json 里的旧 running 盖回来。
+    const candidates = database
+      .prepare(
+        `SELECT workspace_key, task_id, task_status, meta_json FROM tasks
+         WHERE task_status = 'running' OR meta_json LIKE '%"status":"running"%'`,
+      )
+      .all();
+    const orphaned = candidates.filter((row) => {
+      if (row["task_status"] === "running") return true;
+      return parseMetaJsonStatus(row["meta_json"]) === "running";
+    });
+    if (orphaned.length === 0) {
+      return;
     }
+    const clearBoth = database.prepare(
+      `UPDATE tasks SET task_status = NULL, meta_json = ? WHERE workspace_key = ? AND task_id = ?`,
+    );
+    const clearColumnOnly = database.prepare(
+      `UPDATE tasks SET task_status = NULL WHERE workspace_key = ? AND task_id = ?`,
+    );
+    for (const row of orphaned) {
+      const workspaceKey = String(row["workspace_key"]);
+      const taskId = String(row["task_id"]);
+      let nextJson: string | null = null;
+      try {
+        const meta = JSON.parse(String(row["meta_json"] ?? "")) as Record<string, unknown>;
+        if (meta && typeof meta === "object" && !Array.isArray(meta)) {
+          delete meta["status"];
+          nextJson = JSON.stringify(meta);
+        }
+      } catch {
+        // meta_json 坏了就只清列，不覆盖原文
+      }
+      if (nextJson === null) clearColumnOnly.run(workspaceKey, taskId);
+      else clearBoth.run(nextJson, workspaceKey, taskId);
+    }
+    logger.warn(undefined, `清理进程遗留的 running 任务状态 count=${orphaned.length}`);
   }
 
   private backfillOffPeakTaskMarkers(): void {
