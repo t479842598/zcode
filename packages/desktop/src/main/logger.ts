@@ -70,11 +70,26 @@ function formatDate(date: Date): string {
   return `${y}-${m}-${d}`;
 }
 
+function formatLogArgument(value: unknown): string {
+  if (typeof value === "string") return value;
+  if (value instanceof Error) {
+    // JSON.stringify(Error) === "{}"：message/stack 都是不可枚举属性，
+    // 直接 stringify 会把「为什么失败」整段丢掉（线上只剩一个空对象，无法定位）。
+    return value.stack?.trim() || `${value.name}: ${value.message}`;
+  }
+  try {
+    return JSON.stringify(value) ?? String(value);
+  } catch {
+    // 循环引用 / BigInt 等 stringify 失败时不能反过来把日志写入搞崩
+    return String(value);
+  }
+}
+
 function write(level: LogLevel, source: string, ...args: unknown[]) {
   const now = new Date();
   const ts = formatTimestamp(now);
   const pid = process.pid;
-  const message = args.map((a) => (typeof a === "string" ? a : JSON.stringify(a))).join(" ");
+  const message = args.map(formatLogArgument).join(" ");
   const line = `[${ts}] [${level}] [pid:${pid}] [${source}] ${message}\n`;
   const logDir = getLogDir();
   mkdirSync(logDir, { recursive: true });

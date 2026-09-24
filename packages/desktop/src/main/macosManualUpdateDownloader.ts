@@ -56,8 +56,7 @@ export interface DownloadManifestArtifactParams {
   onProgress?: (progress: DownloadProgress) => void;
   /** 诊断日志钩子（生产传 logger.warn），用于定位下载卡住的具体阶段 */
   onDebug?: (message: string) => void;
-  /**
-   * 下载实现注入点，**仅供测试**；生产不传，走下面的 `net.request`。
+  /** 下载实现注入点，**仅供测试**；生产不传，走下面的 `net.request`。
    * 保留它是为了让测试能在纯 Node 下跑，不必拉起 Electron。
    */
   fetchImpl?: typeof fetch;
@@ -65,7 +64,11 @@ export interface DownloadManifestArtifactParams {
 
 /** 只用到 net.request，收敛类型避免把整个 Electron 类型拖进来 */
 export interface NetRequestFactory {
-  request: (options: { url: string; redirect?: "follow" | "error"; session?: unknown }) => ElectronRequestLike;
+  request: (options: {
+    url: string;
+    redirect?: "follow" | "error";
+    session?: unknown;
+  }) => ElectronRequestLike;
 }
 
 /** 下载专用 session 只需能传进 net.request */
@@ -73,8 +76,30 @@ export interface NetSessionLike {
   readonly __brand?: "electron-session";
 }
 
+/**
+ * 把 Electron 的 `net` / `session` 适配成上面的窄接口。
+ *
+ * 为什么不直接声明 `netModule: typeof net`：Electron 的 `ClientRequestConstructorOptions.session`
+ * 是 `Session | undefined`，与为了能跑纯 Node 测试而刻意收窄的 `unknown` 不兼容，
+ * tsc 会在这两行刷 TS2322/TS2559。类型错误长期挂在更新链路上会让真正的错误（如未定义标识符）
+ * 淹没在噪音里——本次事故正是如此漏过去的，所以这里收敛成一处显式适配。
+ */
+export function toNetRequestFactory(netModule: unknown): NetRequestFactory {
+  return netModule as NetRequestFactory;
+}
+
+export function toNetSession(session: unknown): NetSessionLike {
+  return session as NetSessionLike;
+}
+
 interface ElectronRequestLike {
-  on: (event: "error", handler: (error: unknown) => void) => void;
+  // 只声明本文件真正用到的两个事件：response / error。
+  // 早期只声明了 "error"，导致 tsc 在整条更新链路上刷出十几个 TS18046/TS2345，
+  // 真正的错误（如未定义标识符）被噪音淹没、没人会看 —— 本次事故就是这样漏过去的。
+  on: {
+    (event: "error", handler: (error: unknown) => void): void;
+    (event: "response", handler: (response: ElectronResponseLike) => void): void;
+  };
   end: () => void;
 }
 
@@ -85,6 +110,7 @@ interface ElectronResponseLike {
     (event: "data", handler: (chunk: Buffer) => void): void;
     (event: "end", handler: () => void): void;
     (event: "error", handler: (error: unknown) => void): void;
+    (event: "aborted", handler: () => void): void;
   };
 }
 
@@ -148,7 +174,7 @@ async function downloadWithNetRequest(
       file.end(() => {
         if (onProgress) {
           const elapsed = Math.max(0.001, (Date.now() - startedAt) / 1000);
-          emitProgress(onProgress, { transferred, total: transferred, percent: 100, bytesPerSecond: transferred / elapsed });
+          emitProgress(onProgress, { transferred, total: transferred, percent: 100, bytesPerSecond: transferred / elapsed }, onDebug);
         }
         resolve(transferred);
       });
@@ -178,12 +204,16 @@ async function downloadWithNetRequest(
         if (!onProgress || now - lastEmit < 200) return;
         lastEmit = now;
         const elapsed = Math.max(0.001, (now - startedAt) / 1000);
-        emitProgress(onProgress, {
-          transferred,
-          total,
-          percent: total > 0 ? Math.min(100, (transferred / total) * 100) : 0,
-          bytesPerSecond: transferred / elapsed,
-        });
+        emitProgress(
+          onProgress,
+          {
+            transferred,
+            total,
+            percent: total > 0 ? Math.min(100, (transferred / total) * 100) : 0,
+            bytesPerSecond: transferred / elapsed,
+          },
+          onDebug,
+        );
       });
       response.on("end", () => {
         debug(`response end transferred=${transferred}`);
@@ -212,6 +242,7 @@ async function downloadWithFetch(
   destination: string,
   onProgress: ((progress: DownloadProgress) => void) | undefined,
   expectedSize: number | null,
+  onDebug?: (message: string) => void,
 ): Promise<number> {
   const startedAt = Date.now();
   let lastEmit = 0;
@@ -231,12 +262,16 @@ async function downloadWithFetch(
       if (!onProgress || now - lastEmit < 200) continue;
       lastEmit = now;
       const elapsed = Math.max(0.001, (now - startedAt) / 1000);
-      emitProgress(onProgress, {
-        transferred,
-        total,
-        percent: total > 0 ? Math.min(100, (transferred / total) * 100) : 0,
-        bytesPerSecond: transferred / elapsed,
-      });
+      emitProgress(
+        onProgress,
+        {
+          transferred,
+          total,
+          percent: total > 0 ? Math.min(100, (transferred / total) * 100) : 0,
+          bytesPerSecond: transferred / elapsed,
+        },
+        onDebug,
+      );
     }
     await new Promise<void>((resolve, reject) => {
       file.end(() => resolve());
@@ -260,7 +295,7 @@ export async function downloadManifestArtifact(
   await rm(partPath, { force: true });
 
   const bytes = params.fetchImpl
-    ? await downloadWithFetch(params.fetchImpl, url, partPath, onProgress, params.size ?? null)
+    ? await downloadWithFetch(params.fetchImpl, url, partPath, onProgress, params.size ?? null, params.onDebug)
     : params.netModule
       ? await downloadWithNetRequest(
           params.netModule,
@@ -291,7 +326,11 @@ export async function downloadManifestArtifact(
   await rename(partPath, destination);
   const actual = (await stat(destination)).size;
   if (onProgress) {
-    emitProgress(onProgress, { transferred: actual, total: actual, percent: 100, bytesPerSecond: 0 });
+    emitProgress(
+      onProgress,
+      { transferred: actual, total: actual, percent: 100, bytesPerSecond: 0 },
+      params.onDebug,
+    );
   }
   return { path: destination, bytes: actual };
 }
@@ -307,11 +346,15 @@ export async function downloadManifestArtifact(
 function emitProgress(
   onProgress: (progress: DownloadProgress) => void,
   progress: DownloadProgress,
+  onDebug?: (message: string) => void,
 ): void {
   try {
     onProgress(progress);
-  } catch {
-    // 进度回调失败不影响下载本身，静默继续
+  } catch (error) {
+    // 进度回调失败不影响下载本身，静默继续；但不能真"静默"——
+    // 曾因回调里调了不存在的构造器（buildDownloadingUpdateState），
+    // 进度条全程不动却无任何日志，定位代价极大。这里上报一次，保留可观测性。
+    onDebug?.(`progress callback failed: ${describeDownloadError(error).message}`);
   }
 }
 

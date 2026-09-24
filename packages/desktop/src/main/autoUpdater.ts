@@ -25,6 +25,8 @@ import {
   downloadManifestArtifact,
   resolveArtifactFileName,
   resolveManualUpdateCacheDir,
+  toNetRequestFactory,
+  toNetSession,
 } from "./macosManualUpdateDownloader.js";
 import {
   detectSignatureTeamId,
@@ -1080,25 +1082,31 @@ async function downloadUpdateManually(
     destination,
     // net 从主进程注入：本文件静态 import 了 electron，打包后能拿到真正的内置模块；
     // 在 downloader 里动态 import 会解析到 npm 的 electron 包（导出路径字符串），net 是 undefined。
-    netModule: net,
+    netModule: toNetRequestFactory(net),
     // 专用 session：defaultSession 被 desktopNetworkPolicy 钉成 direct（无代理），
     // net.request 不传 session 就用它，直连 GitHub 会卡在首个 TCP 包。
     // 这个 partition 跟随系统代理，与内置浏览器出口一致。
-    netSession: await resolveManualUpdateSession(),
+    netSession: toNetSession(await resolveManualUpdateSession()),
     onDebug: (message) => logger.warn(`[auto-update] ${message}`),
     onProgress: (progress) => {
+      // 自研下载器的进度回调跑在 net.request 的 data 事件里，抛错会被 emitProgress
+      // 静默吞掉（下载继续、进度条却永远不动）。这里按 electron-updater 的
+      // download-progress 同一套状态机推进，别再调用不存在的构造器。
+      const normalizedProgress = progress.percent.toFixed(0);
+      if (menuState.kind === "update-available") {
+        clearAvailableUpdateState();
+      }
       setAutoUpdaterMenuState(
-        buildDownloadingUpdateState(
-          version,
-          downloadingUpdateReleaseNotes ?? availableUpdateReleaseNotes,
-          downloadingUpdateChannel ?? availableUpdateChannel,
-          progress.percent,
-        ),
+        buildDownloadProgressState(normalizedProgress, {
+          transferredBytes: progress.transferred,
+          totalBytes: progress.total,
+        }),
       );
+      logForceAutoUpdateProgress(normalizedProgress);
       notifyForceAutoUpdate({
         kind: "downloading",
         version,
-        progress: String(Math.floor(progress.percent)),
+        progress: normalizedProgress,
       });
     },
   });
@@ -1114,9 +1122,12 @@ async function downloadUpdateManually(
   setAutoUpdaterMenuState(buildUpdateDownloadedState(version));
   notifyForceAutoUpdate({ kind: "ready", version });
 
-  if (options.settingService && readyUpdateReleaseNotes) {
+  // settingService 必须取模块级的 autoUpdaterSettingService：本函数没有 options 形参，
+  // 早期写成 options.settingService 会让下载完成后的最后一步抛 ReferenceError，
+  // 被上层 catch 成「下载失败」并把刚建立的 ready 状态清掉（表现：下载 100% 后回到「发现新版本」）。
+  if (autoUpdaterSettingService && readyUpdateReleaseNotes) {
     void persistPendingPostUpdateReleaseNotes(
-      options.settingService,
+      autoUpdaterSettingService,
       readyUpdateReleaseNotes,
       "manual-download-complete",
     ).catch((error) => {
@@ -1136,6 +1147,9 @@ async function installReadyUpdateManually(): Promise<void> {
   const result: InstallMacUpdateResult = await installMacUpdateFromZip({
     zipPath: readyUpdateFilePath,
     currentVersion: app.getVersion(),
+    // 安装前校验包内版本：manifest 声明 3.14.3 而包是 3.14.2 时，
+    // 装上去版本号不变，下一轮又提示更新（用户看到的「更新按钮永远在」）。
+    expectedVersion: readyUpdateVersion,
   });
   logger.info(
     `[auto-update] 自研安装器完成，已安装到 ${result.installedPath}（旧版备份 ${result.backupPath}），准备重启`,
@@ -1228,7 +1242,11 @@ function handleAutoUpdateFailure(error: unknown, source: string) {
     return;
   }
 
-  logger.error(`[auto-update] ${source}:`, error);
+  logger.error(`[auto-update] ${source}: ${message}`);
+  // 原始错误对象单独输出一次：上面已摊平成 message，但保留 stack 便于定位抛点。
+  if (error instanceof Error && error.stack) {
+    logger.error(`[auto-update] ${source} stack: ${error.stack}`);
+  }
   if (menuState.kind === "update-downloaded" && readyUpdateVersion) {
     const failedReadyVersion = readyUpdateVersion;
     // macOS Squirrel 可能在 update-downloaded 后才发现包无法 stage。

@@ -18,7 +18,7 @@
  */
 import { execFile } from "node:child_process";
 import { existsSync } from "node:fs";
-import { mkdtemp, readdir, rm } from "node:fs/promises";
+import { mkdtemp, readdir, rm, writeFile } from "node:fs/promises";
 import { tmpdir } from "node:os";
 import { basename, dirname, join } from "node:path";
 import { promisify } from "node:util";
@@ -96,15 +96,66 @@ export async function detectSignatureTeamId(appPath: string): Promise<string | n
   }
 }
 
+/**
+ * 读 zip 内 ZCode.app 的 CFBundleShortVersionString；读不到返回 null。
+ *
+ * 为什么需要：服务端 manifest 的 version 与产物实际版本可能不一致（发布脚本只改清单、
+ * 安装包来自别处；或像 3.14.3 那样手写的「验证用临时版本」）。不一致时自研安装器会把
+ * 同版本（甚至更旧）的 app 覆盖上去，装完版本号不变，于是「发现新版本」永远重现。
+ * 这里在替换 /Applications 之前先读一次，把问题挡在动手之前。
+ */
+export async function readZipAppVersion(
+  zipPath: string,
+  appBundleName = "ZCode.app",
+): Promise<string | null> {
+  try {
+    const { stdout } = await execFileAsync(
+      "/usr/bin/unzip",
+      ["-p", zipPath, `${appBundleName}/Contents/Info.plist`],
+      { maxBuffer: 8 * 1024 * 1024, encoding: "buffer" },
+    );
+    return await readPlistShortVersion(Buffer.from(stdout));
+  } catch {
+    return null;
+  }
+}
+
+/** 把 Info.plist（二进制或 XML）转成 CFBundleShortVersionString；读不到返回 null */
+async function readPlistShortVersion(plist: Buffer): Promise<string | null> {
+  const tmpDir = await mkdtemp(join(tmpdir(), "zcode-plist-"));
+  const plistPath = join(tmpDir, "Info.plist");
+  try {
+    await writeFile(plistPath, plist);
+    const { stdout } = await execFileAsync("/usr/bin/plutil", [
+      "-extract",
+      "CFBundleShortVersionString",
+      "raw",
+      "-o",
+      "-",
+      plistPath,
+    ]);
+    const version = String(stdout).trim();
+    return version.length > 0 ? version : null;
+  } catch {
+    return null;
+  } finally {
+    await rm(tmpDir, { recursive: true, force: true }).catch(() => {});
+  }
+}
+
 export interface InstallMacUpdateParams {
   /** 下载好的 zip 路径；为空说明拿不到安装包，直接失败 */
   zipPath: string | null | undefined;
   /** 当前版本，用于备份命名 */
   currentVersion: string;
+  /** manifest 声明的目标版本；给出时校验收到的包确实是这一版 */
+  expectedVersion?: string | null;
   /** 覆盖安装位置（测试用） */
   installTarget?: string;
   /** 覆盖执行器（测试用） */
   runStep?: (step: ManualInstallStep) => Promise<void>;
+  /** 覆盖版本读取（测试用） */
+  readAppVersion?: (zipPath: string) => Promise<string | null>;
 }
 
 export interface InstallMacUpdateResult {
@@ -136,6 +187,22 @@ export async function installMacUpdateFromZip(
   const stagingDir = await mkdtemp(join(tmpdir(), "zcode-update-"));
   const stagedAppPath = join(dirname(installTarget), `.${basename(installTarget)}.new`);
   const backupPath = resolveBackupPath(installTarget, params.currentVersion);
+
+  // 版本一致性门禁：manifest 声明的版本必须等于包内 app 的版本。
+  // 不一致（如 manifest 写 3.14.3 而包是 3.14.2）时若照装，版本号不变，
+  // 客户端下一轮检查又会「发现新版本」，形成「点了更新却永远提示更新」的死循环；
+  // 而且用户会丢掉当前可用版本（被同版本覆盖）。宁可不装。
+  const expectedVersion = params.expectedVersion?.trim();
+  if (expectedVersion) {
+    const actualVersion = await (params.readAppVersion ?? readZipAppVersion)(zipPath);
+    if (actualVersion && actualVersion !== expectedVersion) {
+      throw new Error(
+        `更新包版本不符：清单声明 ${expectedVersion}，包内实际 ${actualVersion}。` +
+          `已放弃安装以避免版本号不变导致的反复更新提示。`,
+      );
+    }
+  }
+
   const steps = buildManualInstallSteps({
     zipPath,
     stagingDir,

@@ -285,6 +285,54 @@ async function main() {
   console.log(`\n✓ 发布完成：${version}（${PLATFORM}）`);
   console.log(`  检测更新：https://zcode.tang74.top/api/v1/releases/electron/manifest?platform=${PLATFORM}&channel=1`);
   console.log(`  下载安装包：${ghBase}/`);
+
+  // 6. 发布后自检：把服务端清单拉回来，核对「声明的 version」与「产物文件名里的版本」一致。
+  //
+  // 为什么必须查：曾出现服务端 manifest 声明 version: 3.14.3、files[].url 却指向
+  // ZCode-3.14.2-mac-arm64.zip（手工改的「验证用临时版本」）。后果是客户端永远认为
+  // 有新版可装，装完版本号还是 3.14.2，于是「更新按钮常亮、点了也升不上去」。
+  // 这里在发布收口处直接揭发，而不是等用户点更新时才发现。
+  await verifyPublishedManifest(version, PLATFORM);
+}
+
+async function verifyPublishedManifest(version, platform) {
+  const url = `https://zcode.tang74.top/api/v1/releases/electron/manifest?platform=${platform}&channel=1`;
+  let text;
+  try {
+    const res = await fetch(url, { headers: { Accept: "application/x-yaml" } });
+    if (!res.ok) throw new Error(`HTTP ${res.status}`);
+    text = await res.text();
+  } catch (error) {
+    throw new Error(`发布后自检失败：无法读取服务端清单（${error.message}）`);
+  }
+
+  const declared = /^version:\s*(.+)$/m.exec(text)?.[1]?.trim();
+  if (declared !== version) {
+    throw new Error(
+      `发布后自检失败：服务端清单声明 version=${declared}，本次发布的是 ${version}。` +
+        `客户端会因此永远认为有新版本可装。请重跑发布或排查 nginx 缓存。`,
+    );
+  }
+
+  const urls = [...text.matchAll(/^\s*-?\s*url:\s*(\S+)$/gm)].map((m) => m[1]);
+  if (urls.length === 0) {
+    throw new Error("发布后自检失败：服务端清单没有任何 files[].url");
+  }
+  // 产物文件名里必须带本次版本号；文件名与声明版本不符时，装上去的就不是这一版。
+  const mismatched = urls.filter((u) => {
+    const name = decodeURIComponent(u.split("?")[0].split("/").pop() ?? "");
+    // 只校验 ZCode-<version>- 开头的安装包；latest-mac.yml 之类的辅助文件不参与
+    if (!/^ZCode[-.]/.test(name)) return false;
+    return !name.includes(`-${version}-`) && !name.includes(`-${version}.`);
+  });
+  if (mismatched.length > 0) {
+    throw new Error(
+      `发布后自检失败：清单声明 ${version}，但产物指向其他版本：\n  ${mismatched.join("\n  ")}\n` +
+        `这会导致客户端下载到版本不符的包，装完版本号不变、更新提示永远重现。`,
+    );
+  }
+
+  console.log(`• 发布后自检通过：清单声明与产物文件名版本一致（${version}）`);
 }
 
 main().catch((error) => {
