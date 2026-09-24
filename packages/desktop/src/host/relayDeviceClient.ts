@@ -10,6 +10,8 @@ import { Emitter, type ISocket } from "@zcode/rpc";
 import {
   createRelaySocket,
   isAssemblableRelayPayload,
+  sameRelayFrameIdentity,
+  type RelayFrameIdentity,
   type RelayDataPayload,
 } from "./relayDeviceSocket.js";
 import {
@@ -50,6 +52,9 @@ export interface RelayDeviceClientOptions {
   activeWorkspacePath?: string;
   /** 心跳间隔，默认 25s */
   heartbeatIntervalMs?: number;
+  /** ready 回包前完成旧 scope 释放和新 scope 建立；不改变线上协议。 */
+  prepareBridge?: (socket: ISocket, identity: RelayFrameIdentity) => Promise<void>;
+  releaseBridge?: () => Promise<void>;
   log?: (message: string) => void;
 }
 
@@ -71,7 +76,7 @@ export interface RelayDeviceConnection {
    * Initialize 必须在这之后再发：早于此时刻发出去的会落在协议层建立之前没人接收，
    * 手机端的请求就会一直排队（已配对但一直加载工作区）。
    */
-  readonly onBridgeOpened: (listener: () => void) => { dispose(): void };
+  readonly onBridgeOpened: (listener: (identity: RelayFrameIdentity) => void) => { dispose(): void };
   /** 收到手机端第一条 rpc-frame（用于停止重发 Initialize） */
   readonly onRpcFrameReceived: (listener: () => void) => { dispose(): void };
   dispose(): void;
@@ -88,10 +93,8 @@ export function connectRelayDevice(
 
   return new Promise((resolve, reject) => {
     const ws = new WebSocket(wsUrl, { headers: { "X-Device-ID": options.deviceMid } });
-    const onCloseEmitter = new Emitter<void>();
-    const onEndEmitter = new Emitter<void>();
     const pairStatusEmitter = new Emitter<"waiting" | "matched">();
-    const bridgeOpenedEmitter = new Emitter<void>();
+    const bridgeOpenedEmitter = new Emitter<RelayFrameIdentity>();
     const rpcFrameEmitter = new Emitter<void>();
     let deviceSid = "";
     let pairStatus: "waiting" | "matched" = "waiting";
@@ -104,6 +107,10 @@ export function connectRelayDevice(
     let settled = false;
     let disposed = false;
     let heartbeat: ReturnType<typeof setInterval> | undefined;
+    let awaitingHeartbeat = false;
+    let bridgeIdentity: RelayFrameIdentity | undefined;
+    // 控制消息串行：异步释放旧 scope 期间不能让下一次 open 越过当前请求。
+    let controlQueue = Promise.resolve();
     /** 认证拿到 device_sid 后创建；负责 relay 之上的应用层消息 */
     let appResponder: RelayAppResponder | undefined;
 
@@ -138,7 +145,10 @@ export function connectRelayDevice(
     };
 
     const fail = (error: Error) => {
-      if (settled) return;
+      if (settled) {
+        ws.close();
+        return;
+      }
       settled = true;
       cleanup();
       try {
@@ -211,18 +221,19 @@ export function connectRelayDevice(
             ...(options.activeWorkspacePath
               ? { activeWorkspacePath: options.activeWorkspacePath }
               : {}),
-            // 手机端对每个 rpc-frame 都做 zod strict 校验（bridgeSessionId 必填、
-            // 且必须与它发送时一致），所以桥一建好就得把 identity 装到出站帧上。
-            onBridgeIdentity: (identity) => {
-              log(`relay bridge: frame identity set session=${identity.bridgeSessionId}`);
-              relaySocket.setFrameIdentity(identity);
-            },
           });
           log(`relay app protocol ready workspaceKey=${appResponder.workspaceKey}`);
           if (!settled) {
             settled = true;
             cleanup();
             heartbeat = setInterval(() => {
+              // TCP 半开不一定触发 close；一轮无回应后终结，交给 bootstrap 单一路径重连。
+              if (awaitingHeartbeat) {
+                log("relay heartbeat timeout");
+                ws.terminate();
+                return;
+              }
+              awaitingHeartbeat = true;
               send({ type: "pair_status_query", client_ts: Date.now() });
             }, options.heartbeatIntervalMs ?? 25_000);
             resolve({
@@ -235,15 +246,26 @@ export function connectRelayDevice(
               dispose() {
                 if (disposed) return;
                 disposed = true;
-                if (heartbeat) clearInterval(heartbeat);
-                heartbeat = undefined;
+                cleanup();
                 relaySocket.socket.end();
+                pairStatusEmitter.dispose();
+                bridgeOpenedEmitter.dispose();
+                rpcFrameEmitter.dispose();
               },
             });
           }
           return;
         }
         case "pair_status_ack": {
+          awaitingHeartbeat = false;
+          if (pairStatus === "matched" && message.pair_status !== "matched") {
+            relaySocket.setFrameIdentity(undefined);
+            bridgeIdentity = undefined;
+            controlQueue = controlQueue.then(() => options.releaseBridge?.()).catch((error: unknown) => {
+              log(`relay bridge release failed: ${error instanceof Error ? error.message : "unknown"}`);
+              if (!disposed) ws.close();
+            });
+          }
           setPairStatus(message.pair_status === "matched" ? "matched" : "waiting");
           return;
         }
@@ -257,38 +279,42 @@ export function connectRelayDevice(
             // 否则会被 RelayMessageAssembler 的字段校验静默丢弃、手机侧超时。
             // 工作区/任务名单要从 Setting 与 zcode-task 服务异步取，而这里是同步的
             // onMessage 回调，所以自己去 await，不阻塞后续帧的处理。
-            void (async () => {
+            controlQueue = controlQueue.then(async () => {
+              if (disposed) return;
               const reply = await appResponder?.handle(
                 payload as unknown as { zcode_type: string },
               );
-              if (!reply) {
-                log(`relay app <- ${zcodeType} (no response)`);
-                return;
+              if (!reply || disposed) return;
+              let opened: RelayFrameIdentity | undefined;
+              if (reply.zcode_type === "workspace-bridge-ready") {
+                opened = {
+                  bridgeSessionId: String(reply.bridgeSessionId ?? ""),
+                  ...(typeof reply.bridgeGeneration === "number"
+                    ? { bridgeGeneration: reply.bridgeGeneration } : {}),
+                  ...(typeof reply.recoveryId === "string" ? { recoveryId: reply.recoveryId } : {}),
+                };
+                if (!opened.bridgeSessionId) throw new Error("missing bridge identity");
+                if (!sameRelayFrameIdentity(bridgeIdentity, opened)) {
+                  // 暂停旧入站及分片；prepare 同步关闭旧出站门后等待 attachment 清理。
+                  relaySocket.setFrameIdentity(undefined);
+                  await options.prepareBridge?.(relaySocket.socket, opened);
+                  if (disposed) return;
+                  bridgeIdentity = opened;
+                  relaySocket.setFrameIdentity(opened);
+                }
               }
               log(`relay app <- ${zcodeType} -> ${String(reply.zcode_type)}`);
               send({ type: "data", payload: reply, client_ts: Date.now() });
-              // bridge-ready 发出后，手机端才会建 RPC protocol，这时发 Initialize 才有人收
-              if (reply.zcode_type === "workspace-bridge-ready") {
-                bridgeOpenedEmitter.fire();
-              }
-            })();
+              if (opened) bridgeOpenedEmitter.fire(opened);
+            }).catch((error: unknown) => {
+              log(`relay app failed: ${error instanceof Error ? error.message : "unknown"}`);
+              if (!disposed) ws.close();
+            });
             return;
           }
-          // bridge 建好后手机端才开始发 RPC 帧；记首片，便于判断卡在「没发」还是「没送达」
-          if (zcodeType === "rpc-frame-ack") {
-            log(`relay rpc-frame-ack <- ackMessageSeq=${String(payload.ackMessageSeq)}`);
-          } else if (payload.fragmentIndex === 0) {
-            log(
-              `relay rpc-frame <- ${zcodeType} messageSeq=${payload.messageSeq} fragments=${payload.fragmentCount} bytes=${payload.messageBytes}`,
-            );
-            // 只有真的从手机端收到了请求，才能确定它已经建好 RPC protocol、
-            // Initialize 已经送达（ack 不算）。
+          // 只有当前 bridge 校验并重组成功的完整消息才证明 Initialize 已被消费。
+          if (isAssemblableRelayPayload(payload) && relaySocket.acceptDataPayload(payload)) {
             rpcFrameEmitter.fire();
-          }
-          // ACK 不进装配器：它没有分片字段，进去只会被判非法并同步写一行诊断日志。
-          // 详见 isAssemblableRelayPayload。
-          if (isAssemblableRelayPayload(payload)) {
-            relaySocket.acceptDataPayload(payload);
           }
           return;
         }
@@ -316,8 +342,9 @@ export function connectRelayDevice(
       // 导致 WS 一断上层毫无感知 —— 不重连、也不释放 channelServer，
       // 表现就是桌面端静默掉线、手机端一直卡在加载工作区。
       relaySocket.socket.end();
-      onCloseEmitter.fire();
-      onEndEmitter.fire();
+      pairStatusEmitter.dispose();
+      bridgeOpenedEmitter.dispose();
+      rpcFrameEmitter.dispose();
       if (!settled) fail(new Error(`relay ws closed before authenticated: ${wsUrl}`));
     };
     ws.on("close", handleGone);

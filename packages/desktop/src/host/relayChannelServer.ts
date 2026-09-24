@@ -19,7 +19,7 @@ import {
 } from "@zcode/services";
 
 export interface RelayChannelServerHandle {
-  dispose(): void;
+  dispose(): Promise<void>;
   /**
    * 向对端发 Initialize。
    * 必须等手机端**真正接入后**再调：ChannelServer 构造时若直接发（deferInit=false），
@@ -42,9 +42,11 @@ export function serveRelaySocketOnServices(
   // SocketProtocol，对端 onBuffer 收到的就是 `01 00 ... 06 <正文>`（实测），
   // deserialize 出 undefined，ChannelClient 永远停在 Uninitialized，所有请求排队不发。
   // 一次 socket.write 对应一个中继 data 帧，正好与对端“一帧一消息”对称。
+  let disposed = false;
   const protocol: IMessagePassingProtocol = {
     onMessage: socket.onData,
-    send: (buffer) => socket.write(buffer),
+    // rawServer.dispose 会取消请求，但服务可能忽略取消；禁止旧 Promise 向新 bridge 回包。
+    send: (buffer) => { if (!disposed) socket.write(buffer); },
     drain: () => Promise.resolve(),
   };
   const rawServer = new ChannelServer(protocol, "server", 1000, true);
@@ -65,15 +67,17 @@ export function serveRelaySocketOnServices(
   }
   services.exposeOnChannelServer(server, overrides);
 
-  let disposed = false;
-  const dispose = () => {
-    if (disposed) return;
+  let disposal: Promise<void> | undefined;
+  const dispose = (): Promise<void> => {
+    if (disposal) return disposal;
     disposed = true;
-    void connectionScope?.dispose();
     rawServer.dispose();
+    for (const subscription of subscriptions) subscription.dispose();
+    disposal = Promise.resolve().then(() => connectionScope?.dispose());
+    return disposal;
   };
-  socket.onClose(dispose);
-  socket.onEnd(dispose);
+  const onSocketClosed = () => { void dispose().catch((error) => log("relay scope cleanup failed", error)); };
+  const subscriptions = [socket.onClose(onSocketClosed), socket.onEnd(onSocketClosed)];
 
   return {
     dispose,

@@ -46,6 +46,15 @@ export interface RelayFrameIdentity {
   recoveryId?: string;
 }
 
+/** 三个字段共同标识一次页面接入，不能只比较 sessionId。 */
+export function sameRelayFrameIdentity(
+  left: RelayFrameIdentity | undefined,
+  right: RelayFrameIdentity | undefined,
+): boolean {
+  return !!left && !!right && left.bridgeSessionId === right.bridgeSessionId &&
+    left.bridgeGeneration === right.bridgeGeneration && left.recoveryId === right.recoveryId;
+}
+
 export interface RelayDataPayload {
   zcode_type: "rpc-frame" | "rpc-frame-ack";
   /**
@@ -214,7 +223,7 @@ export function createRelaySocket(
   onDiscard?: (reason: string, messageSeq: number) => void,
 ): {
   socket: ISocket;
-  acceptDataPayload(payload: RelayDataPayload): void;
+  acceptDataPayload(payload: RelayDataPayload): boolean;
   /** 设出站帧的 bridge identity；须在手机端 bridge-open 之后设置，否则帧会被对端丢弃 */
   setFrameIdentity(identity: RelayFrameIdentity | undefined): void;
 } {
@@ -226,8 +235,12 @@ export function createRelaySocket(
   let closed = false;
   let frameIdentity: RelayFrameIdentity | undefined;
 
+  let deliveredMessages = 0;
   const assembler = new RelayMessageAssembler(
-    (bytes) => onData.fire(VSBuffer.wrap(bytes)),
+    (bytes) => {
+      deliveredMessages += 1;
+      onData.fire(VSBuffer.wrap(bytes));
+    },
     onDiscard,
   );
 
@@ -237,7 +250,7 @@ export function createRelaySocket(
       onClose: onClose.event,
       onEnd: onEnd.event,
       write(buffer: VSBuffer) {
-        if (closed) return;
+        if (closed || !frameIdentity) return;
         for (const payload of encodeRelayFrames(
           buffer.buffer,
           (seq += 1),
@@ -254,6 +267,9 @@ export function createRelaySocket(
         transport.close();
         onClose.fire();
         onEnd.fire();
+        onData.dispose();
+        onClose.dispose();
+        onEnd.dispose();
       },
       drain() {
         return Promise.resolve();
@@ -263,14 +279,30 @@ export function createRelaySocket(
         closed = true;
         assembler.dispose();
         transport.close();
+        onData.dispose();
+        onClose.dispose();
+        onEnd.dispose();
       },
     },
     acceptDataPayload(payload) {
-      if (closed) return;
+      if (closed) return false;
+      // 刷新后的 clientId/messageSeq 会重用；旧身份不能进入当前 RPC 或分片缓存。
+      if (!frameIdentity || !sameRelayFrameIdentity(frameIdentity, {
+        bridgeSessionId: payload.bridgeSessionId ?? "",
+        bridgeGeneration: payload.bridgeGeneration,
+        recoveryId: payload.recoveryId,
+      })) {
+        onDiscard?.("stale-bridge", payload.messageSeq);
+        return false;
+      }
+      const before = deliveredMessages;
       assembler.accept(payload);
+      return deliveredMessages !== before;
     },
     setFrameIdentity(identity) {
-      frameIdentity = identity;
+      if (sameRelayFrameIdentity(frameIdentity, identity)) return;
+      assembler.dispose();
+      frameIdentity = identity ? { ...identity } : undefined;
       // 对端 b0t 的 assembler 按物理 seq 连续性校验，且以 bridge 建立为起点。
       // 本 socket 在桥建立前已经发过东西（Initialize 重发等），不归零会让
       // 对端看到 seq=4198 而期望 1，于是每帧都被当乱序丢掉（表现为收得到、不处理、不回 ack）。
