@@ -9,7 +9,7 @@
 import { z } from "zod";
 import {
   MCP_USAGE_QUOTA_LIMIT_TYPE,
-  buildRuntimeZCodeApiUrl,
+  buildOfficialZCodeApiUrl,
   type ApiClient,
   type UsageMcpQuotaScope,
   type UsageMcpQuotaSnapshot,
@@ -204,7 +204,7 @@ export async function fetchMcpQuotaSnapshot(params: {
     return null;
   }
 
-  const url = buildRuntimeZCodeApiUrl(params.env, MCP_USAGE_PATH);
+  const url = buildOfficialZCodeApiUrl(MCP_USAGE_PATH);
   const headers = buildOfficialMcpAuthHeaders(outcome.snapshot);
   let payload: unknown;
   let requestId: string | null = null;

@@ -86,15 +86,12 @@ export function useOAuth() {
           return;
         }
 
-        // 自托管：账号登录已移除，不再打开浏览器跳转 OAuth。
-        // 模型访问改用用户自配 provider（BYOK），登录页仅保留 API Key 入口。
-        logger.info("[useOAuth] 自托管模式：已禁用 OAuth 浏览器跳转", {
-          provider: startedProvider,
-        });
-        setOAuthPollingActive(false);
-        setPendingProvider(null);
-        setStatus("idle");
-        return;
+        // 自托管只分离中继/更新，账号仍使用官方授权和原有凭据服务。
+        platform.registerOAuthState({ state, provider: startedProvider });
+        setOAuthPollingActive(
+          startedProvider === ZAI_PROVIDER_ID || startedProvider === BIGMODEL_PROVIDER_ID,
+        );
+        platform.openExternal(authorizeUrl);
         void reportAppTelemetryEvent(
           platform,
           {

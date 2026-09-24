@@ -157,6 +157,12 @@ export function buildRuntimeZCodeEndpointUrls(
   return buildZCodeEndpointUrls(resolveRuntimeZCodeEndpointOrigin(env));
 }
 
+/** 官方账号、权益和模型控制面不能继承自建中继/更新站的地址。 */
+export function buildOfficialZCodeApiUrl(path: string): string {
+  const normalizedPath = path.startsWith("/") ? path : `/${path}`;
+  return `${DEFAULT_ZCODE_ENDPOINT_ORIGIN}${normalizedPath}`;
+}
+
 export function buildRuntimeZCodeApiUrl(
   env: RuntimeZCodeEndpointEnv = readProductEndpointEnv(),
   path: string,

@@ -13,6 +13,7 @@ import {
   ZCODE_PRODUCT_FLAVOR,
   ZCODE_RUNTIME_ENV_KEY,
   ZCODE_VERSION,
+  DEFAULT_ZCODE_ENDPOINT_ORIGIN,
   buildZCodeToolEnvPassthroughEnv,
   resolveRuntimeZCodeEndpointOrigin,
   readProductEndpointEnv,
@@ -536,6 +537,10 @@ export function buildHostProcessEnv(hostProcessLocalEnv: Record<string, string>)
 
   return {
     ...inheritedEnv,
+    // 自托管中继/更新不承载账号权益。业务进程及Agent使用官方域名和正常网关。
+    ZCODE_BASE_URL: DEFAULT_ZCODE_ENDPOINT_ORIGIN,
+    ZCODE_ENDPOINT_ORIGIN: DEFAULT_ZCODE_ENDPOINT_ORIGIN,
+    ZCODE_DISABLE_OFFICIAL_CODING_PLAN_GATEWAY: "0",
     // OTLP 凭据只定向传到 host；host 初始化 services 时会立即捕获并从 process.env 清除，
     // 后续只在启动 Agent 时短暂注入，不会进入 Bash/MCP/tool env。
     ...agentTelemetryEnv,

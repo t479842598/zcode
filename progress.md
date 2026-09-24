@@ -27,3 +27,28 @@
 - packages/desktop/src/host/relayDeviceClient.ts：排队的waiting事件执行时再次清空bridge身份。
 - progress.md：追加本轮说明和回滚点。
 回滚：对此条所在提交执行git revert；之前的刷新修复点为99a018e。没有安装或部署，不影响官方客户端。
+
+## 2026-09-24 - Task: 恢复官方登录/权益端点并保持中继与更新独立
+### What was done
+按用户追加明确授权恢复官方OAuth的state、轮询和浏览器打开；Host/Agent业务origin及账号账单/官方模型网关指向官方；套餐页固定官方；更新站单独解析，不因账号登录改回官方更新。沿用原凭据键名、密文格式及存储，无读取真实令牌、无发起真实登录或模型请求。
+### Testing
+新账号测试6项通过（包括假HTTP init/poll、假凭据enc:v1读写、OAuth回调/网关/更新分离）。外层完整套件26项通过；更新器2脚本通过。pnpm typecheck通过；architecture 0 violations；主进程守卫通过；main全量83既存错误，与HEAD虚拟源码基线相比新增0。全仓lint由3104 warnings/1 error变为3101 warnings/1 error，既存根index.js max-lines未修改；新增账号测试/helper及关键模块lint 0 warnings/0 errors。真实登录、3亿额度、手机实机、打包发布与安装未执行。
+### Notes
+- packages/ui/src/hooks/useOAuth.ts：恢复state登记、轮询和打开授权网页。
+- packages/ui/src/lib/rendererZCodeEndpoint.ts：套餐页固定官方，防止凭据发往自建网页。
+- packages/shared/src/zcodeEndpoint.ts：新增官方业务URL构造函数，不改变通用中继/更新origin解析。
+- packages/services/src/oauth/providers/configUtils.ts：OAuth初始化、轮询、交换与callback固定官方。
+- packages/services/src/model-provider/zaiStartPlanBilling.ts：余额接口固定官方。
+- packages/services/src/node.ts：业务配置/账号/Agent/MCP统一官方origin。
+- packages/services/src/coding-plan-subscription/bigmodelCodingPlanSubscriptionProvider.ts：账号配置接口官方化。
+- packages/services/src/usage-stats/providers/bigmodelUsageQuotaProvider.ts：额度查询操作走官方。
+- packages/services/src/usage-stats/providers/zcodeMcpQuotaProvider.ts：官方MCP额度路由固定官方。
+- packages/services/src/session/offPeakRuntimeModel.ts：真实闲时业务origin固定官方，保留mock模式。
+- apps/zcode-cli/packages/adapters/src/model/official-coding-plan-gateway.ts：官方模型网关不继承自建origin，BYOK不改。
+- packages/desktop/src/main/desktopRuntimeEnv.ts：Host继承官方业务origin并恢复官方模型网关。
+- packages/desktop/src/main/index.ts：业务配置读取官方，更新与强制更新独立解析自建来源。
+- packages/desktop/src/main/selfhostUpdateOrigin.ts：自建更新origin解析，防止回落官方。
+- packages/desktop/tests/selfhost/official-account-routing.test.ts：官方路由、登录调用与凭据格式隔离回归。
+- docs/selfhost-official-account.md：使用边界、配置与待实机项目。
+- progress.md：记录授权、检查结果与回滚点。
+回滚：对本条所在提交执行git revert。此前版本与刷新补充提交45a13ec；没有改真实用户数据，因此不需要回滚凭据或官方应用。
