@@ -15,3 +15,15 @@
 - docs/selfhost-relay-refresh.md：记录状态时序、验证入口和发布门禁。
 - progress.md：追加本次证据和回滚方式。
 回滚：对本条所在提交执行 git revert；配套外层中继单terminal策略须一起回滚。原始源码基线为 abd72de。未部署或安装，不需要回滚生产。
+
+## 2026-09-24 - Task: 版本对齐与离开页面时的队列清理补充
+### What was done
+源码版本对齐本机官方3.14.3，新增根版本/构建元数据/自托管GitHub发布目标一致性回归；补充waiting控制事件执行时再次清掉可能由先前异步prepare恢复的旧身份。活动额度只调研不接入、不复制凭据；实机与生产测试按用户要求延后。
+### Testing
+新增release-version离线测试通过；完整套件在最终验证阶段重跑。版本读取调用collectBuildMetadata，不生成或安装应用。类型与lint结果在外层progress.md汇总。
+### Notes
+- package.json：版本3.14.2改为3.14.3，不等同于全量上游升级。
+- packages/desktop/tests/selfhost/release-version.test.ts：校验版本与独立发布目标。
+- packages/desktop/src/host/relayDeviceClient.ts：排队的waiting事件执行时再次清空bridge身份。
+- progress.md：追加本轮说明和回滚点。
+回滚：对此条所在提交执行git revert；之前的刷新修复点为99a018e。没有安装或部署，不影响官方客户端。

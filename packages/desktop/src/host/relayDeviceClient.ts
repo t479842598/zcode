@@ -261,7 +261,12 @@ export function connectRelayDevice(
           if (pairStatus === "matched" && message.pair_status !== "matched") {
             relaySocket.setFrameIdentity(undefined);
             bridgeIdentity = undefined;
-            controlQueue = controlQueue.then(() => options.releaseBridge?.()).catch((error: unknown) => {
+            controlQueue = controlQueue.then(async () => {
+              // waiting 可能在前一条异步 prepare 未完成时到达，队列执行时再次失效身份。
+              relaySocket.setFrameIdentity(undefined);
+              bridgeIdentity = undefined;
+              await options.releaseBridge?.();
+            }).catch((error: unknown) => {
               log(`relay bridge release failed: ${error instanceof Error ? error.message : "unknown"}`);
               if (!disposed) ws.close();
             });
