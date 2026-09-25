@@ -31,6 +31,8 @@ export function WebRemoteControlDialog({
 }: {
   open: boolean;
   onOpenChange: (open: boolean) => void;
+  workspacePath?: string;
+  workspaceIdentity?: string;
 }) {
   const { intl } = useZCodeIntl();
   const services = useServices();

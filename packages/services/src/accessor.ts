@@ -12,6 +12,7 @@ import type { IZCodeTaskService } from "./session/zcodeTaskService.js";
 import type { IZCodeAgentService } from "./zcode-agent/zcodeAgent.js";
 import type { IZCodeSessionService } from "./zcode-session/zcodeSession.js";
 import type { ICuaPermissionService } from "./cua-permission-broker/cuaPermissionService.js";
+import type { IBotsService } from "./bots/bots.js";
 import type { IFileWatcherService } from "./fileWatcher/fileWatcher.js";
 import type { IWebRemoteControlService } from "./webRemoteControl/webRemoteControl.js";
 import type { IBackupService } from "./selfBackup/selfBackup.js";
@@ -62,6 +63,7 @@ export interface IServiceAccessor {
   // CUA 是 opt-in 内测特性：local macOS host 提供，远端 等 host 没有。可选避免连锁必填。
   readonly cuaPermissionService?: ICuaPermissionService;
   readonly conversationShareService: IConversationShareService;
+  readonly botsService: IBotsService;
   readonly fileWatcherService: IFileWatcherService;
   /** 移动端远程控制状态；仅自托管桌面 Host 提供，SSH 远端/普通 server 没有 */
   readonly webRemoteControlService?: IWebRemoteControlService;
