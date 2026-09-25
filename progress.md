@@ -136,3 +136,15 @@ Host要求Renderer关于“本次不需要验证”的回执与发送前最新�
 - docs/selfhost-start-plan-verification.md：配置变化与隔离编译证据。
 - progress.md：追加证据和回滚点。
 回滚：对此条提交执行git revert；上一轮32a3001。无部署或官方应用修改。
+
+## 2026-09-25 - Task: 移动远控按钮与官方侧栏位置对齐
+### What was done
+将入口从头像菜单迁至桌面工作区侧栏footer设置按钮左侧，保持原二维码弹窗、Host和连接身份；没有在手机端和无工作区页面添加空按钮。
+### Testing
+入口布局静态测试1项通过；pnpm typecheck与architecture检查通过，真实UI点击及二维码需打包后检查。官方已安装包只读确认触发器在footer设置按钮左侧。
+### Notes
+- packages/ui/src/WorkspaceSidebarFooter.tsx：移除下拉入口，增加紧凑手机图标按钮。
+- packages/ui/test/webRemoteTriggerPlacement.test.ts：确认按钮顺序、desktop/workspace条件及无重复入口。
+- docs/selfhost-remote-entry.md：记录官方来源、复用原弹窗及实际UI待验。
+- progress.md：追加本轮证据和回滚点。
+回滚：本条提交执行git revert；无安装或部署时无需生产回滚。

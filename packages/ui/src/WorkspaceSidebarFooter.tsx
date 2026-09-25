@@ -346,14 +346,6 @@ export const WorkspaceSidebarFooter = memo(function WorkspaceSidebarFooterCompon
               state={usageSummaryState}
               onUsageClick={usageButtonClick}
             />
-            {/* 自托管：移动端远程控制入口（官方闭源功能，自托管版自建） */}
-            <DropdownMenuItem
-              onSelect={() => setWebRemoteOpen(true)}
-              data-testid="web-remote-control-menu-item"
-            >
-              <Smartphone className="size-4" />
-              {intl.formatMessage({ id: "webRemoteControl.trigger" })}
-            </DropdownMenuItem>
             {onLogin && !user ? (
               <>
                 <DropdownMenuSeparator />
@@ -375,6 +367,20 @@ export const WorkspaceSidebarFooter = memo(function WorkspaceSidebarFooterCompon
           </DropdownMenuContent>
         </DropdownMenu>
         <div className="flex shrink-0 items-center gap-1.5">
+          {isDesktop && workspacePath ? (
+            <ControlHintTooltip title={intl.formatMessage({ id: "webRemoteControl.trigger" })}>
+              <Button
+                type="button"
+                variant="ghost"
+                size="icon-lg"
+                data-testid="web-remote-control-button"
+                aria-label={intl.formatMessage({ id: "webRemoteControl.trigger" })}
+                onClick={() => setWebRemoteOpen(true)}
+              >
+                <Smartphone className="size-4" />
+              </Button>
+            </ControlHintTooltip>
+          ) : null}
           <ControlHintTooltip title={settingsButtonLabel}>
             <Button
               type="button"
