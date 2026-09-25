@@ -199,3 +199,24 @@ test("trusted-host-relay 不能代替本机桌面窗口响应验证", async () =
     await scope.dispose();
   }
 });
+
+test("安全验证配置在请求间变化时不降级成JWT-only", async () => {
+  const { startPlanVerificationHeaders } =
+    await import("../src/zcode-agent/startPlanVerification.js");
+  assert.deepEqual(
+    startPlanVerificationHeaders({ enabled: false }, { captchaVerifyParam: "" }),
+    {},
+  );
+  assert.throws(
+    () =>
+      startPlanVerificationHeaders(
+        { enabled: true, region: "cn", prefix: "p", sceneId: "s" },
+        { captchaVerifyParam: "" },
+      ),
+    /failed/,
+  );
+  assert.throws(
+    () => startPlanVerificationHeaders(null, { captchaVerifyParam: "" }),
+    /unavailable/,
+  );
+});

@@ -24,3 +24,7 @@ CLI请求(model-request/captcha-retry)
 ## 连接角色补充（2026-09-25）
 
 `desktop-continuous` 也可能表示远程 trusted-host-relay，并不必然是本机UI。安全验证事件与应答仅开放给 `desktop-continuous + terminal-client` 的当前桌面窗口；`web-remote-replayable` 和 `trusted-host-relay` 均不能取得或提交验证码回执。已增加两类负向测试，正常本机桌面正向测试保留。
+
+## 配置变化与隔离编译（2026-09-25）
+
+Host在发送前重新读取官方配置；Renderer回执的`verificationNotRequired`必须与当前`enabled:false`一致，若其间启用/关闭状态改变则当前请求失败，不会退化成JWT-only。纯假数据检查覆盖关闭、缺失与启用但无回执。Host及Renderer分别以esbuild隔离构建到`/private/tmp`通过；第一次renderer直接esbuild缺少SVG/PNG loader后补资源loader通过。此检查不代替完整Electron打包、真实官方SDK和服务器验收。

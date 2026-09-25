@@ -124,3 +124,15 @@
 - docs/selfhost-start-plan-verification.md：记录本机UI与远端Host角色差异。
 - progress.md：追加测试和回滚点。
 回滚：对本条提交执行git revert，前一源码提交0c04e70；未安装或部署。
+
+## 2026-09-25 - Task: 收紧验证码配置变化门禁并完成隔离编译
+### What was done
+Host要求Renderer关于“本次不需要验证”的回执与发送前最新官方配置完全一致；状态变化时报错，不仅阻断从关闭切到启用，也阻断从启用切到关闭时使用旧证明。避免任何仅带JWT的意外降级。
+### Testing
+本轮验证/更新测试18项通过；Host bundle及Renderer含资源loader的隔离esbuild输出到/private/tmp成功；typecheck和architecture check通过。真实SDK与模型余额仍未验收。
+### Notes
+- packages/services/src/zcode-agent/zcodeAgentService.ts：配置状态一致性门禁。
+- packages/services/tests/start-plan-verification.test.ts：启用/缺失/关闭差异回归。
+- docs/selfhost-start-plan-verification.md：配置变化与隔离编译证据。
+- progress.md：追加证据和回滚点。
+回滚：对此条提交执行git revert；上一轮32a3001。无部署或官方应用修改。

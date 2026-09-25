@@ -4833,7 +4833,7 @@ export function createZCodeAgentService(
       try {
         const config = await options?.resolveStartPlanCaptchaConfig?.();
         if (!config) throw new Error("Start Plan verification is unavailable");
-        if (!config.enabled && !params.verificationNotRequired) {
+        if (params.verificationNotRequired !== !config.enabled) {
           throw new Error("Start Plan verification state changed");
         }
         if (config.enabled && !params.captchaVerifyParam) {
