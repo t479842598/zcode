@@ -377,7 +377,7 @@ export const WorkspaceSidebarFooter = memo(function WorkspaceSidebarFooterCompon
                 aria-label={intl.formatMessage({ id: "webRemoteControl.trigger" })}
                 onClick={() => setWebRemoteOpen(true)}
               >
-                <Smartphone className="size-4" />
+                <Smartphone aria-hidden="true" strokeWidth={2} className="size-5 shrink-0 text-sky-500 dark:text-sky-400" />
               </Button>
             </ControlHintTooltip>
           ) : null}

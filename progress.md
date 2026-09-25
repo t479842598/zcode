@@ -173,3 +173,18 @@ Host要求Renderer关于“本次不需要验证”的回执与发送前最新�
 - docs/selfhost-relay-refresh.md：记录线上时间线、根因、修复和未验项。
 - progress.md：追加验证证据与回滚点。
 回滚：本条提交执行git revert；已安装候选若升级须按原应用备份回滚。线上中继代码未因本条改动。
+
+## 2026-09-26 - Task: 草稿品牌、手机按钮视觉与工作流差异清单
+### What was done
+新对话草稿欢迎态展示Zcode_满血_青棠、本地仓库入口和核实的GitHub项目链接；手机中继按钮增大并提高对比度，不改弹窗。按官方3.14.3发布说明/备份安装包与当前源码列出工作流已有、确认缺失和待验证功能。根README移除末尾优惠/声明引用，NOTICE文件保留。
+### Testing
+品牌与按钮静态测试2项、typecheck与architecture检查通过；改动文件oxlint零错误。实际品牌/图标须新包可视验收；工作流只读差异未经用户选择不做移植。
+### Notes
+- README.md：移除末尾优惠声明链接。
+- packages/ui/src/v4/ConversationDraftAttribution.tsx：品牌、本地仓库及GitHub链接。
+- packages/ui/src/v4/ConversationDraftEmptyState.tsx：仅草稿欢迎态嵌入出处行。
+- packages/ui/src/WorkspaceSidebarFooter.tsx：中继图标尺寸和颜色对比优化。
+- packages/ui/test/draftAttribution.test.ts：草稿品牌和链接回归。
+- docs/selfhost-workflow-parity.md：供用户选择的工作流差异清单。
+- progress.md：追加本轮验证、范围与回滚点。
+回滚：对本条提交执行git revert；已装应用需按备份恢复或后续包替换，源码回滚不会自动更改已装应用。

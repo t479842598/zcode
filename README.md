@@ -241,7 +241,3 @@ node dist/zcode/debug/zcode/bin/zcode.mjs --web \
 | `packages/provider`、`packages/provider-node`        | Provider 公共能力与 Node 实现              |
 | `apps/zcode-cli`                                     | Agent CLI、TUI、运行时与工具               |
 | `scripts`、`config`、`third-party`                   | 构建维护脚本、内置配置与第三方声明材料     |
-
-## 项目声明
-
-功能与优惠范围、维护规则、执行与数据风险，以及许可和第三方版权说明，详见 [NOTICE.md](NOTICE.md)。
