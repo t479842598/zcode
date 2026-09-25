@@ -201,3 +201,19 @@ Host的移动列表在持久索引之上只读叠加现有Agent session当前状
 - docs/selfhost-remote-live-task-status.md：行为和实机待验说明。
 - progress.md：追加测试和回滚点。
 回滚：本条提交git revert。现有已装客户端在后续替换前不含本修复。
+
+## 2026-09-26 - Task: 官方3.14.3工作流A/B/C/D同步与远控实时状态修复
+### What was done
+先在隔离工作树合并官方公开3.14.3源码，解决README和自建远控相关冲突后带回当前分支，保留账号/自建中继/更新/品牌。A运行中并发上限、B修改续跑和卡片修复、C大流程状态/脚本投影、D保存历史图续跑按用户所选完整同步。手机任务列表从旧持久completed叠加当前existing-only Agent session running，避免误报完成。
+### Testing
+隔离工作树与主分支typecheck通过；CLI packages编译通过；工作流A/B/C/D四项回归、relay30项和远控身份状态2项通过；架构检查0违反。全仓lint仍有原有未跟踪index.js的1项错误，未声称通过。实际工作流执行、手机端运行态、官方服务账号需发布后验收。
+### Notes
+- 官方同步涉及工作流runtime、共享协议投影、UI卡片及相关依赖，独立提交fa1745d；仍保留自建远控入口和WebRemoteControlDialog。
+- packages/desktop/src/host/relayLiveTaskStatus.ts：只合并同身份现有runtime的任务状态。
+- packages/desktop/src/host/index.ts：mobile bootstrap/list接入实时叠加。
+- packages/desktop/tests/selfhost/relay-live-task-status.test.ts：旧completed/live running及跨identity负向回归。
+- packages/ui/test/selfhostWorkflowParity.test.ts：四类能力合同回归。
+- docs/selfhost-remote-live-task-status.md：状态源与未验项。
+- docs/selfhost-workflow-parity.md：用户已全选的同步证据与真实验收边界。
+- progress.md：本轮证据和回滚点。
+回滚：独立git revert 8a25957、fa1745d；正式包替换后还需按已有ZCode.app备份回滚，不通过撤销源码代替应用回滚。
