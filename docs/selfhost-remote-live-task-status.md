@@ -1,0 +1,7 @@
+# 手机远控任务列表实时状态
+
+手机端bootstrap/workspace-list使用Host的`resolveTasks`。持久化task index可能仍记录已完成，而同身份Agent runtime当前任务正在执行；只看索引会让远控误显示“已完成”。
+
+修复仅对已返回列表中的task向**已存在**的Agent runtime执行session/list(sessionIds, existing-only)，匹配workspaceKey与sessionId后合并running/completed/error；索引无runtime或失败则沿用旧值，不创建额外Agent。身份优先workspaceIdentity再退回workspacePath，禁止同路径远程工作区交叉。
+
+测试：旧completed+活跃running→running、跨identity不覆盖、无runtime保留completed；30项relay回归和typecheck/architecture通过。真实移动端任务列表动态刷新仍需在新包上线后观察，尤其session已结束但仍有后台workflow的场景需单独验收；本次不改数据库状态。

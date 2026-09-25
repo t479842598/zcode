@@ -188,3 +188,16 @@ Host要求Renderer关于“本次不需要验证”的回执与发送前最新�
 - docs/selfhost-workflow-parity.md：供用户选择的工作流差异清单。
 - progress.md：追加本轮验证、范围与回滚点。
 回滚：对本条提交执行git revert；已装应用需按备份恢复或后续包替换，源码回滚不会自动更改已装应用。
+
+## 2026-09-26 - Task: 远控运行中任务状态误显示已完成
+### What was done
+Host的移动列表在持久索引之上只读叠加现有Agent session当前状态，匹配身份和taskId；旧索引completed且runtime running时返回running，不启动Agent，不改变数据库或中继协议。
+### Testing
+先构造旧完成/当前运行的失败用例，修复后两条状态单测通过；30项本机relay套件、typecheck、architecture 0 violations、改动文件oxlint零警告/错误通过。真实手机列表及后台workflow状态待打包部署后验证。
+### Notes
+- packages/desktop/src/host/relayLiveTaskStatus.ts：现有runtime状态叠加，身份与错误边界。
+- packages/desktop/src/host/index.ts：mobile bootstrap/list任务读端接入。
+- packages/desktop/tests/selfhost/relay-live-task-status.test.ts：running覆盖旧completed与跨workspace负向测试。
+- docs/selfhost-remote-live-task-status.md：行为和实机待验说明。
+- progress.md：追加测试和回滚点。
+回滚：本条提交git revert。现有已装客户端在后续替换前不含本修复。

@@ -30,6 +30,7 @@ import { resolveResourceTelemetryEnvironmentKey } from "./hostResourceTelemetryE
 import { reportHostSessionCreate } from "./hostSessionCreateTelemetry.js";
 import { startRelayDeviceBridge, type RelayDeviceBridgeHandle } from "./relayDeviceBootstrap.js";
 import { toRelayAppTask } from "./relayAppProtocol.js";
+import { overlayLiveRelayTaskStatus } from "./relayLiveTaskStatus.js";
 import { createBrowserControlMainBridge } from "./browserControlMainBridge.js";
 import { materializeBrowserRecordingArtifact } from "./browserRecordingArtifactMaterializer.js";
 import {
@@ -2970,7 +2971,11 @@ parentPort.on("message", async (e: Electron.MessageEvent) => {
                   sortBy: "updated",
                   limit: 100,
                 });
-                return result.items.map(toRelayAppTask);
+                const agentService = services.getOptional(IZCodeAgentService);
+                const items = agentService
+                  ? await overlayLiveRelayTaskStatus(result.items, (request) => agentService.listSessions(request))
+                  : result.items;
+                return items.map(toRelayAppTask);
               },
               ...(msg.workspacePath &&
               relayWorkspaces.some((item) => item.workspacePath === msg.workspacePath)
