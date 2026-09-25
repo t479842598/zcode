@@ -227,3 +227,15 @@ upstream typecheck与CLI packages编译通过；工作流合同6项、relay本�
 - docs/releases/v3.14.3-selfhost.md：本次正式版说明、验证范围和回滚依据。
 - progress.md：追加发布准备与测试证据。
 回滚：本条提交执行git revert；APP和在线中继不因文档提交而改变。
+
+## 2026-09-26 - Task: 草稿底部移除本地仓库显示
+### What was done
+按用户追加要求仅移除本地仓库路径及文件管理器入口，保留Zcode_满血_青棠与GitHub仓库链接，不改草稿以外的会话布局。
+### Testing
+草稿品牌静态回归1项、typecheck与architecture通过；改动文件oxlint零错误零警告，真实已安装UI需随最终包验收。
+### Notes
+- packages/ui/src/v4/ConversationDraftAttribution.tsx：移除本地路径和跳转，仅保留GitHub。
+- packages/ui/test/draftAttribution.test.ts：新增无本地路径断言。
+- docs/selfhost-workflow-parity.md：记录最终品牌栏范围。
+- progress.md：记录验证与回滚点。
+回滚：本条提交git revert；APP须重新打包替换或从备份恢复，不能仅回滚源码。
