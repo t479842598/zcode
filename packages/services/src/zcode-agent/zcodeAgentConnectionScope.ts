@@ -648,17 +648,17 @@ export function createZCodeAgentConnectionScope(
   const overrides: Partial<IZCodeAgentService> = {
     onDynamicStartPlanVerificationRequest() {
       // 桌面窗口可承接交互；web-remote-replayable 不得直接得到验证事件。
-      return context.clientMode === "desktop-continuous"
+      return context.clientMode === "desktop-continuous" && role === "terminal-client"
         ? base.onDynamicStartPlanVerificationRequest()
         : RpcEvent.None;
     },
     onDynamicStartPlanVerificationCancelled() {
-      return context.clientMode === "desktop-continuous"
+      return context.clientMode === "desktop-continuous" && role === "terminal-client"
         ? base.onDynamicStartPlanVerificationCancelled()
         : RpcEvent.None;
     },
     async respondStartPlanVerification(params) {
-      if (context.clientMode !== "desktop-continuous")
+      if (context.clientMode !== "desktop-continuous" || role !== "terminal-client")
         throw new Error("fault.connection.desktopOnly");
       await base.respondStartPlanVerification(params);
     },

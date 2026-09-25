@@ -20,3 +20,7 @@ CLI请求(model-request/captcha-retry)
 ## 排队取消回归（2026-09-25）
 
 同一桌面窗口内同时等待多轮验证时，取消排队中的第二轮不能立即释放它占有的队列位置；必须等第一轮结束后再移交给第三轮。新测试先复现第三轮越过第一轮、随后修复并通过。官方配置没有显式 `enabled` 但包含完整 `region/prefix/sceneId` 时视为需要验证；只有服务端明确 `enabled: false` 才跳过，不把缺字段误判为关闭。
+
+## 连接角色补充（2026-09-25）
+
+`desktop-continuous` 也可能表示远程 trusted-host-relay，并不必然是本机UI。安全验证事件与应答仅开放给 `desktop-continuous + terminal-client` 的当前桌面窗口；`web-remote-replayable` 和 `trusted-host-relay` 均不能取得或提交验证码回执。已增加两类负向测试，正常本机桌面正向测试保留。

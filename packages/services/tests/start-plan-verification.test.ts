@@ -177,3 +177,25 @@ test("共享协议接受正常验证重试原因，但不会接受任意字符�
     false,
   );
 });
+
+test("trusted-host-relay 不能代替本机桌面窗口响应验证", async () => {
+  const { createZCodeAgentConnectionScope } =
+    await import("../src/zcode-agent/zcodeAgentConnectionScope.js");
+  const scope = createZCodeAgentConnectionScope({} as never, {
+    connectionId: "remote-host",
+    clientMode: "desktop-continuous",
+    role: "trusted-host-relay",
+  });
+  try {
+    let delivered = 0;
+    scope.service
+      .onDynamicStartPlanVerificationRequest()(() => {
+        delivered++;
+      })
+      .dispose();
+    assert.equal(delivered, 0);
+    await assert.rejects(scope.service.respondStartPlanVerification({} as never), /desktopOnly/);
+  } finally {
+    await scope.dispose();
+  }
+});

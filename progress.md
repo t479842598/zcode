@@ -112,3 +112,15 @@
 - docs/selfhost-start-plan-verification.md：补排队时序与配置语义。
 - progress.md：追加测试证据及回滚点。
 回滚：对本条提交执行git revert；上一轮源码提交c9ac81e。未部署，不影响官方客户端。
+
+## 2026-09-25 - Task: 收紧验证码交互的桌面连接角色
+### What was done
+按实际连接角色区分本机desktop-continuous terminal-client与远程trusted-host-relay，后者不得获取或提交验证信息。保留手机replayable的拒绝边界。
+### Testing
+角色边界8项测试通过，typecheck通过，改动文件oxlint 0 warnings/0 errors，diff --check通过。真实活动额度仍待实机验证。
+### Notes
+- packages/services/src/zcode-agent/zcodeAgentConnectionScope.ts：增加terminal-client角色校验。
+- packages/services/tests/start-plan-verification.test.ts：补trusted-host-relay负向回归。
+- docs/selfhost-start-plan-verification.md：记录本机UI与远端Host角色差异。
+- progress.md：追加测试和回滚点。
+回滚：对本条提交执行git revert，前一源码提交0c04e70；未安装或部署。
