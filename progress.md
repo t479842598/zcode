@@ -217,3 +217,13 @@ Host的移动列表在持久索引之上只读叠加现有Agent session当前状
 - docs/selfhost-workflow-parity.md：用户已全选的同步证据与真实验收边界。
 - progress.md：本轮证据和回滚点。
 回滚：独立git revert 8a25957、fa1745d；正式包替换后还需按已有ZCode.app备份回滚，不通过撤销源码代替应用回滚。
+
+## 2026-09-26 - Task: 准备官方工作流完整同步后的正式发布
+### What was done
+整理自托管3.14.3正式版更新说明，列明官方公开工作流A/B/C/D、ACK与移动状态修复、品牌及中继安全变更；仍以实际正式包hash和实机验证作为最终门禁。
+### Testing
+upstream typecheck与CLI packages编译通过；工作流合同6项、relay本机30项通过；架构检查零违规。正式包构建、安装验收与GitHub发布另行记录，不把准备文案写成已经上线。
+### Notes
+- docs/releases/v3.14.3-selfhost.md：本次正式版说明、验证范围和回滚依据。
+- progress.md：追加发布准备与测试证据。
+回滚：本条提交执行git revert；APP和在线中继不因文档提交而改变。
