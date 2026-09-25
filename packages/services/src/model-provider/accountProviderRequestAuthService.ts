@@ -16,7 +16,7 @@ export interface AccountRequestAuthInput {
   providerId: string;
   modelId?: string;
   accountAccess: ZCodeProviderAccountAccess | ZCodeAccountAccess;
-  reason: "model-request" | "off-peak" | "usage";
+  reason: "model-request" | "captcha-retry" | "off-peak" | "usage";
 }
 
 export interface AccountAccessIdentityInput {

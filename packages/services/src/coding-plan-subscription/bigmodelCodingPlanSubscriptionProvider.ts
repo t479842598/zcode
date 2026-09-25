@@ -52,6 +52,7 @@ import type {
   DynamicWorkflowClientConfig,
 } from "@zcode/shared";
 import type { ModelSelectionView } from "@zcode/provider";
+import { parseCaptchaConfig, type CaptchaConfig } from "./captchaConfig.js";
 import type { OffPeakClientConfig } from "./codingPlanSubscription.js";
 import {
   BIGMODEL_PROVIDER_ID,
@@ -102,6 +103,7 @@ interface ZCodeClientConfigEnvelope {
   data?: {
     configs?: {
       forceUpdate?: ForceUpdateConfig | null;
+      captcha?: unknown;
       codingPlanStaticProducts?: CodingPlanStaticProductsConfig;
       codingPlanStaticTeamProducts?: CodingPlanStaticTeamProductsConfig;
       startPlanPreview?: StartPlanPreviewConfig | null;
@@ -212,6 +214,14 @@ export class BigModelCodingPlanSubscriptionProvider {
   async getStartPlanPreview(): Promise<StartPlanPreviewConfig | null> {
     const payload = await this.getClientConfigs();
     return unwrapClientConfigStartPlanPreview(payload);
+  }
+
+  async getCaptchaConfig(): Promise<CaptchaConfig | null> {
+    // 1h 产品配置缓存可延迟验证码启用；模型请求逐次检查必须获取当前服务端配置。
+    this.clientConfigSnapshot = null;
+    this.clientConfigSnapshotExpiresAt = 0;
+    const payload = await this.getClientConfigs();
+    return parseCaptchaConfig(payload.data?.configs?.captcha);
   }
 
   /**

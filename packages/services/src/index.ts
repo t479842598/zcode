@@ -1,3 +1,4 @@
+export type { CaptchaConfig } from "./coding-plan-subscription/captchaConfig.js";
 // Descriptors & collection (browser-safe)
 export { type ServiceDescriptor, createServiceDescriptor } from "./descriptors.js";
 export { ServiceCollection } from "./collection.js";

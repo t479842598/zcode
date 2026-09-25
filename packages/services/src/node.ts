@@ -2081,6 +2081,8 @@ export function createLocalServices(options: {
       ? { accountProviderConfigSource: agentAccountProviderConfigSource }
       : {}),
     accountRequestAuthService,
+    allowStartPlanVerificationInteraction: options?.serviceAuthorityMode === "desktop-local",
+    resolveStartPlanCaptchaConfig: () => codingPlanSubscriptionService.getCaptchaConfig(),
     ...(modelSelectionReadinessSource ? { modelSelectionReadinessSource } : {}),
     authorizeLocalMediaPreviewPath: options?.authorizeLocalMediaPreviewPath,
     ...offPeakToolWiring,

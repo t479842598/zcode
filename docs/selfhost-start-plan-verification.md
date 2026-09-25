@@ -1,0 +1,18 @@
+# 已领取 Start Plan 的请求级正常验证
+
+2026-09-25 源码接线：桌面 `desktop-continuous` 连接承接当前模型请求的官方配置与正常SDK验证；`web-remote-replayable` 不可订阅验证事件或提交回执。验证参数只在当前请求的 Host pending 中等待，响应时 Host 重读当前账号访问与JWT，不接收 Renderer 指定的身份材料；CLI收到的回执是当次的两项验证头和对应账号鉴权。
+
+```text
+CLI请求(model-request/captcha-retry)
+ → Host按workspace identity/session/requestId登记pending
+ → 桌面窗口读取官方client/configs → SDK完成无感或交互验证
+ → Host重读配置与账号 → 校验pending → 仅当前请求回传
+ → CLI发送官方模型请求；CLI取消/超时或窗口关闭则移除pending
+```
+
+- 服务端显式返回 `enabled: false` 时才不要求验证码。配置缺失、结构不全、SDK未能加载、认证失败和无桌面窗口均明确失败，不发送仅带JWT的Start Plan模型请求。
+- 验证回执不存磁盘、不复用；成功后清除DOM，取消或超时不回传。手机端只通过已有Host运行任务，不获得验证码/JWT；如果桌面不在线会收到明确失败。
+- 现有余额桶、套餐/模型白名单及账本规则未改；未重复领取用户已领活动，也未调用真实模型/余额接口。
+- 本轮离线测试覆盖配置结构/禁用态、官方配置读取、正常/取消/重复SDK回调、请求级identity隔离和desktop/replayable连接边界。真实SDK行为、官方服务端活动准入和模型扣减仍未验证，不把离线通过当作3亿额度可用。
+
+本次不包含活动预览与再次领取入口；那是不同业务动作，须在当前已领取权益实机验收后另行处理。若官方服务返回安全校验错误，应保留原始业务码并停止，不尝试绕开验证。

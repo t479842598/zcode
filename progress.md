@@ -70,3 +70,31 @@
 - docs/selfhost-official-release-view.md：行为、来源、验证与回滚说明。
 - progress.md：追加本轮证据与回滚点。
 回滚：对本条所在提交执行git revert。未部署、未安装，无需生产回滚。
+
+## 2026-09-25 - Task: 已领取Start Plan请求级正常验证接线
+### What was done
+按用户批准扩展Host-Agent协议中的请求原因；Host维护当前请求pending和桌面交互事件，由本地桌面读取官方captcha配置、执行正常SDK验证，再由Host读取当前账号JWT并合并白名单验证头。手机replayable不能订阅/应答；不再次领取活动或搬运登录令牌。
+### Testing
+离线配置/请求身份/桌面与手机权限/SDK模拟回调及取消测试已通过；pnpm typecheck和架构检查通过；全仓lint仍有既存错误。真实官方SDK、Safari、账号额度和模型扣减尚待隔离客户端验收。本轮未使用真实账号、未变更官方安装。
+### Notes
+- packages/services/src/coding-plan-subscription/captchaConfig.ts：解析官方配置，区分明确关闭与缺失。
+- packages/services/src/coding-plan-subscription/bigmodelCodingPlanSubscriptionProvider.ts：官方配置读取与新鲜度。
+- packages/services/src/coding-plan-subscription/codingPlanSubscription.ts：新增只读配置合同。
+- packages/services/src/coding-plan-subscription/codingPlanSubscriptionService.ts：代理现有服务。
+- packages/services/src/index.ts：公开验证配置类型。
+- packages/services/src/model-provider/accountProviderRequestAuthService.ts：扩展请求原因类型。
+- packages/services/src/node.ts：仅桌面本地Host提供验证交互。
+- packages/services/src/zcode-agent/zcodeAgent.ts：新增Host/Renderer验证请求和回执接口。
+- packages/services/src/zcode-agent/zcodeAgentConnectionScope.ts：按desktop-continuous/replayable隔离交互权限。
+- packages/services/src/zcode-agent/zcodeAgentService.ts：pending生命周期、JWT重读与请求级响应。
+- packages/services/src/zcode-agent/startPlanVerification.ts：验证头白名单与请求身份比对。
+- packages/shared/src/zcode-protocol/index.ts：新增captcha-retry请求原因。
+- packages/ui/src/Root.tsx：仅桌面安装交互订阅。
+- packages/ui/src/root/startPlanCaptcha.ts：请求级SDK交互、超时/取消及清理。
+- packages/ui/src/root/useStartPlanVerification.ts：桌面验证响应及取消关联。
+- packages/services/tests/captcha-config.test.ts：配置读取及结构回归。
+- packages/services/tests/start-plan-verification.test.ts：身份、权限及白名单回归。
+- packages/ui/src/root/startPlanCaptcha.test.ts：SDK模拟成功、取消、旧回调隔离。
+- docs/selfhost-start-plan-verification.md：状态所有者、验收缺口和边界。
+- progress.md：本次证据和回滚点。
+回滚：对本条提交执行git revert；先前官方版本动态提交14481e3独立不受影响。未安装部署，无生产回滚。
