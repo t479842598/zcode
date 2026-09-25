@@ -160,3 +160,16 @@ Host要求Renderer关于“本次不需要验证”的回执与发送前最新�
 - docs/selfhost-publish-credential.md：记录运行条件和历史风险边界。
 - progress.md：追加测试与回滚说明。
 回滚：对此条提交使用git revert，但不得恢复旧的静态密码；前一提交0a6ea87。无线上操作。
+
+## 2026-09-26 - Task: 修复手机端远控每45秒重连
+### What was done
+以线上终端连接时序和nginx文档请求区分WebSocket重连与整页刷新；定位桌面没有回rpc-frame-ack使手机45秒重放期限耗尽。完成完整帧ACK、重复帧仅ACK不重放业务、旧桥/坏帧不ACK和切桥清理。
+### Testing
+新增ACK回归先失败再通过；中继本机28项集成回归、typecheck和architecture检查通过。线上长期连接尚待替换新桌面包后观察；当前已安装包不含此修复，不能认为故障已在生产消失。
+### Notes
+- packages/desktop/src/host/relayDeviceSocket.ts：验证并交付手机RPC后回当前bridge的ACK，避免重复处理。
+- packages/desktop/tests/selfhost/relay-refresh.test.ts：ACK、重复、坏帧和旧bridge负向测试。
+- packages/desktop/tests/selfhost/relay-lifecycle.test.ts：初始化测试区分ACK与业务帧。
+- docs/selfhost-relay-refresh.md：记录线上时间线、根因、修复和未验项。
+- progress.md：追加验证证据与回滚点。
+回滚：本条提交执行git revert；已安装候选若升级须按原应用备份回滚。线上中继代码未因本条改动。

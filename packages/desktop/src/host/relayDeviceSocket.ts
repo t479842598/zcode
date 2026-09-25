@@ -51,8 +51,13 @@ export function sameRelayFrameIdentity(
   left: RelayFrameIdentity | undefined,
   right: RelayFrameIdentity | undefined,
 ): boolean {
-  return !!left && !!right && left.bridgeSessionId === right.bridgeSessionId &&
-    left.bridgeGeneration === right.bridgeGeneration && left.recoveryId === right.recoveryId;
+  return (
+    !!left &&
+    !!right &&
+    left.bridgeSessionId === right.bridgeSessionId &&
+    left.bridgeGeneration === right.bridgeGeneration &&
+    left.recoveryId === right.recoveryId
+  );
 }
 
 export interface RelayDataPayload {
@@ -236,13 +241,12 @@ export function createRelaySocket(
   let frameIdentity: RelayFrameIdentity | undefined;
 
   let deliveredMessages = 0;
-  const assembler = new RelayMessageAssembler(
-    (bytes) => {
-      deliveredMessages += 1;
-      onData.fire(VSBuffer.wrap(bytes));
-    },
-    onDiscard,
-  );
+  const deliveredSeqs = new Set<number>();
+  let highestDeliveredSeq = 0;
+  const assembler = new RelayMessageAssembler((bytes) => {
+    deliveredMessages += 1;
+    onData.fire(VSBuffer.wrap(bytes));
+  }, onDiscard);
 
   return {
     socket: {
@@ -287,21 +291,57 @@ export function createRelaySocket(
     acceptDataPayload(payload) {
       if (closed) return false;
       // 刷新后的 clientId/messageSeq 会重用；旧身份不能进入当前 RPC 或分片缓存。
-      if (!frameIdentity || !sameRelayFrameIdentity(frameIdentity, {
-        bridgeSessionId: payload.bridgeSessionId ?? "",
-        bridgeGeneration: payload.bridgeGeneration,
-        recoveryId: payload.recoveryId,
-      })) {
+      if (
+        !frameIdentity ||
+        !sameRelayFrameIdentity(frameIdentity, {
+          bridgeSessionId: payload.bridgeSessionId ?? "",
+          bridgeGeneration: payload.bridgeGeneration,
+          recoveryId: payload.recoveryId,
+        })
+      ) {
         onDiscard?.("stale-bridge", payload.messageSeq);
+        return false;
+      }
+      // 手机端在45秒内收不到ACK会主动重连；成功交付完整消息后立刻回执。
+      // 重复messageSeq只补ACK，不再把同一RPC命令执行第二次。
+      if (Number.isSafeInteger(payload.messageSeq) && deliveredSeqs.has(payload.messageSeq)) {
+        transport.send({
+          type: "data",
+          payload: {
+            zcode_type: "rpc-frame-ack",
+            ...frameIdentity,
+            ackMessageSeq: payload.messageSeq,
+          },
+          client_ts: Date.now(),
+        });
+        return false;
+      }
+      if (Number.isSafeInteger(payload.messageSeq) && payload.messageSeq <= highestDeliveredSeq) {
+        onDiscard?.("stale-message-seq", payload.messageSeq);
         return false;
       }
       const before = deliveredMessages;
       assembler.accept(payload);
-      return deliveredMessages !== before;
+      if (deliveredMessages === before) return false;
+      deliveredSeqs.add(payload.messageSeq);
+      highestDeliveredSeq = Math.max(highestDeliveredSeq, payload.messageSeq);
+      if (deliveredSeqs.size > 128) deliveredSeqs.delete(deliveredSeqs.values().next().value!);
+      transport.send({
+        type: "data",
+        payload: {
+          zcode_type: "rpc-frame-ack",
+          ...frameIdentity,
+          ackMessageSeq: payload.messageSeq,
+        },
+        client_ts: Date.now(),
+      });
+      return true;
     },
     setFrameIdentity(identity) {
       if (sameRelayFrameIdentity(frameIdentity, identity)) return;
       assembler.dispose();
+      deliveredSeqs.clear();
+      highestDeliveredSeq = 0;
       frameIdentity = identity ? { ...identity } : undefined;
       // 对端 b0t 的 assembler 按物理 seq 连续性校验，且以 bridge 建立为起点。
       // 本 socket 在桥建立前已经发过东西（Initialize 重发等），不归零会让

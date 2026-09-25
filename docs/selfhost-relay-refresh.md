@@ -52,3 +52,9 @@ fnm exec --using=24.18.0 node ../patches/tools/check-main-types.mjs
 - 全仓 lint 基线有 3104 个警告、1 个错误，错误位于既存未跟踪的根 `index.js`（max-lines），本轮未删除或改写该材料。改动文件 lint 0 error、1 个既存 warning；不能称全仓 lint 通过。
 - 用户明确确认前，不退出/替换官方应用，不部署服务，不迁移或回写真实数据。
 - 同版本官方/自托管包须以来源、commit、hash 区分，不能仅靠版本号判断当前运行的代码。
+
+## 2026-09-26 手机端每45秒重连根因与修复
+
+线上relay的terminal连接在23:39–23:47反复以约45秒间隔关闭/重建，同期nginx的`/remote/v4/`文档请求没有每45秒出现，故不是整页自动reload。手机Web资源的bridge传输把未确认出站RPC保持在replay窗口，45秒达到`remote.rpcFrame.ackGraceExceeded`或`remote.rpcFrame.replayGraceExceeded`会进入降级重连。桌面端旧实现只组装手机RPC帧，**完全没有发`rpc-frame-ack`**，与症状时间完全一致。
+
+修复：完整分片CRC校验并交付RPC后，桌面端按当前bridge identity及messageSeq回`rpc-frame-ack`；重复messageSeq只重发ACK，不重新执行RPC；旧bridge、CRC坏帧或不完整分片不给ACK；身份切换清空已交付窗口。中继仍只负责原样转发。回归覆盖ACK、重复、坏帧和旧桥，既有初始化测试统计业务帧而不把ACK误认为迟到业务回包。28项本机中继集成回归通过，正式包重建和线上超过45秒观察仍待执行。

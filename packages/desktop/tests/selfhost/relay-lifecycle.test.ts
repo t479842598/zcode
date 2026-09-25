@@ -2,14 +2,21 @@ import assert from "node:assert/strict";
 import { test } from "node:test";
 import { ServiceCollection } from "@zcode/services";
 import { BufferWriter, serialize } from "@zcode/rpc";
-import { createRelaySocket, encodeRelayFrames, type RelayDataPayload } from "../../src/host/relayDeviceSocket.js";
+import {
+  createRelaySocket,
+  encodeRelayFrames,
+  type RelayDataPayload,
+} from "../../src/host/relayDeviceSocket.js";
 import { createRelayBridgeLifecycle } from "../../src/host/relayBridgeLifecycle.js";
 
 const identity = { bridgeSessionId: "bridge", bridgeGeneration: 1 };
 function fixture() {
   const sent: Array<{ payload: RelayDataPayload }> = [];
   let closed = 0;
-  const socket = createRelaySocket({ send: (message) => sent.push(message as never), close: () => closed++ });
+  const socket = createRelaySocket({
+    send: (message) => sent.push(message as never),
+    close: () => closed++,
+  });
   const lifecycle = createRelayBridgeLifecycle(socket.socket, new ServiceCollection(), () => {});
   return { socket, lifecycle, sent, closed: () => closed };
 }
@@ -17,7 +24,10 @@ function fixture() {
 test("initialize retry expires at 10 seconds and closes transport", async (t) => {
   t.mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
   const f = fixture();
-  t.after(async () => { await f.lifecycle.dispose(); f.socket.socket.dispose(); });
+  t.after(async () => {
+    await f.lifecycle.dispose();
+    f.socket.socket.dispose();
+  });
   await f.lifecycle.prepare(identity);
   f.socket.setFrameIdentity(identity);
   f.lifecycle.ready(identity);
@@ -34,7 +44,10 @@ test("initialize retry expires at 10 seconds and closes transport", async (t) =>
 test("valid RPC stops initialization retry; duplicate open preserves scope", async (t) => {
   t.mock.timers.enable({ apis: ["setTimeout", "setInterval"] });
   const f = fixture();
-  t.after(async () => { await f.lifecycle.dispose(); f.socket.socket.dispose(); });
+  t.after(async () => {
+    await f.lifecycle.dispose();
+    f.socket.socket.dispose();
+  });
   await f.lifecycle.prepare(identity);
   f.socket.setFrameIdentity(identity);
   f.lifecycle.ready(identity);
@@ -45,7 +58,12 @@ test("valid RPC stops initialization retry; duplicate open preserves scope", asy
   await f.lifecycle.prepare({ ...identity });
   f.lifecycle.ready(identity);
   t.mock.timers.tick(20000);
-  assert.equal(f.sent.length, 1);
+  assert.equal(
+    f.sent.filter((item) => item.payload.zcode_type === "rpc-frame").length,
+    1,
+    "initialization must not resend after receiving the request",
+  );
+  assert.equal(f.sent.filter((item) => item.payload.zcode_type === "rpc-frame-ack").length, 1);
   assert.equal(f.closed(), 0);
 });
 
