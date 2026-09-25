@@ -239,3 +239,13 @@ upstream typecheck与CLI packages编译通过；工作流合同6项、relay本�
 - docs/selfhost-workflow-parity.md：记录最终品牌栏范围。
 - progress.md：记录验证与回滚点。
 回滚：本条提交git revert；APP须重新打包替换或从备份恢复，不能仅回滚源码。
+
+## 2026-09-26 - Task: 正式发行前核对草稿品牌和版本说明
+### What was done
+已安装新构建后在真实UI确认草稿只显示Zcode_满血_青棠和GitHub仓库超链接，不含本地路径；同步更正Release说明中旧的本地仓库措辞。
+### Testing
+已安装正式身份APP为单实例，asar与候选构建哈希一致、SQLite完整性ok，界面可见GitHub入口。更正文档git diff --check通过；最终发行包需按本次提交重新构建。
+### Notes
+- docs/releases/v3.14.3-selfhost.md：删除过时本地仓库描述。
+- progress.md：追加实际UI验证和发行包重建门禁。
+回滚：本条提交git revert；已安装APP的回滚仍按备份执行。
