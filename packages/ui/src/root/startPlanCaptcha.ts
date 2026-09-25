@@ -20,7 +20,8 @@ async function claimVerificationSlot(signal: AbortSignal): Promise<() => void> {
     signal.throwIfAborted();
     return release;
   } catch (error) {
-    release();
+    // 排队者取消后仍须等待前一轮释放，再交给后续请求；否则第三轮会并发进入SDK。
+    void previous.then(release);
     throw error;
   }
 }

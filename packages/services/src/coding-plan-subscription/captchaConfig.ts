@@ -5,7 +5,7 @@ export const captchaConfigSchema = z.discriminatedUnion("enabled", [
   z.object({ enabled: z.literal(false) }).passthrough(),
   z
     .object({
-      enabled: z.literal(true),
+      enabled: z.literal(true).default(true),
       region: z.string().min(1),
       prefix: z.string().min(1),
       sceneId: z.string().min(1),

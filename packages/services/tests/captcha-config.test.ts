@@ -6,6 +6,7 @@ test("正常验证配置只接受完整字段", () => {
   assert.equal(parseCaptchaConfig(null), null);
   assert.equal(parseCaptchaConfig({ enabled: true, sceneId: "s", prefix: "p" }), null);
   assert.deepEqual(parseCaptchaConfig({ enabled: false }), { enabled: false });
+  assert.equal(parseCaptchaConfig({ sceneId: "s", prefix: "p", region: "r" })?.enabled, true);
   assert.equal(
     parseCaptchaConfig({ enabled: true, sceneId: "s", prefix: "p", region: "r" })?.sceneId,
     "s",

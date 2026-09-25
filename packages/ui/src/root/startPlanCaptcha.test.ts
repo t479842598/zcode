@@ -93,3 +93,32 @@ test("同一时刻只能有一轮SDK验证，旧成功不能响应新请求", as
     Object.assign(globalThis, saved);
   }
 });
+
+test("排队中的第二轮取消，不得让第三轮越过仍在进行的第一轮", async () => {
+  const saved = { window: globalThis.window, document: globalThis.document };
+  const successCallbacks: Array<(value: string) => void> = [];
+  const dom = fakeDom(({ success }) => {
+    successCallbacks.push(success);
+  });
+  Object.assign(globalThis, { window: dom.window, document: dom.document });
+  try {
+    const first = verifyStartPlanCaptcha(config, new AbortController().signal, "zh-CN");
+    await new Promise((resolve) => setImmediate(resolve));
+    const secondController = new AbortController();
+    const second = verifyStartPlanCaptcha(config, secondController.signal, "zh-CN");
+    await new Promise((resolve) => setImmediate(resolve));
+    secondController.abort();
+    await assert.rejects(second, /cancelled/);
+    const third = verifyStartPlanCaptcha(config, new AbortController().signal, "zh-CN");
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(successCallbacks.length, 1, "first verification still owns the SDK");
+    successCallbacks[0]!("first-proof");
+    assert.equal(await first, "first-proof");
+    await new Promise((resolve) => setImmediate(resolve));
+    assert.equal(successCallbacks.length, 2);
+    successCallbacks[1]!("third-proof");
+    assert.equal(await third, "third-proof");
+  } finally {
+    Object.assign(globalThis, saved);
+  }
+});

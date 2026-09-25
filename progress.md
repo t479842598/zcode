@@ -98,3 +98,17 @@
 - docs/selfhost-start-plan-verification.md：状态所有者、验收缺口和边界。
 - progress.md：本次证据和回滚点。
 回滚：对本条提交执行git revert；先前官方版本动态提交14481e3独立不受影响。未安装部署，无生产回滚。
+
+## 2026-09-25 - Task: 修复验证排队取消导致下一轮并发进入SDK
+### What was done
+修复排队中的验证被取消后过早放行第三轮的问题；保留先后顺序直到前一轮真正完成。官方配置未声明enabled但具备完整参数时视为启用，显式false才关闭。
+### Testing
+新增排队取消用例先失败（第三轮越过第一轮），修复后4个SDK模拟用例通过；配置解析2项测试通过。最终完整类型、lint与架构检查见交付汇总，真实官方SDK与额度仍待T-005验收。
+### Notes
+- packages/ui/src/root/startPlanCaptcha.ts：取消排队时延后释放队列位置。
+- packages/ui/src/root/startPlanCaptcha.test.ts：复现并验证第三轮不得越过第一轮。
+- packages/services/src/coding-plan-subscription/captchaConfig.ts：完整配置缺省启用。
+- packages/services/tests/captcha-config.test.ts：回归缺省启用与显式关闭。
+- docs/selfhost-start-plan-verification.md：补排队时序与配置语义。
+- progress.md：追加测试证据及回滚点。
+回滚：对本条提交执行git revert；上一轮源码提交c9ac81e。未部署，不影响官方客户端。
