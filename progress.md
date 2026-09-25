@@ -148,3 +148,15 @@ Host要求Renderer关于“本次不需要验证”的回执与发送前最新�
 - docs/selfhost-remote-entry.md：记录官方来源、复用原弹窗及实际UI待验。
 - progress.md：追加本轮证据和回滚点。
 回滚：本条提交执行git revert；无安装或部署时无需生产回滚。
+
+## 2026-09-25 - Task: 发布凭据不再回退源码常量
+### What was done
+去掉发布脚本中的静态SSH密码回退，缺少环境变量时在上传前明确拒绝。没有上传、登录或更改线上凭据。
+### Testing
+发布凭据测试1项和语法检查通过；后续仍须发布环境用明确注入的凭据验收。源代码历史已有敏感内容的处置不等同于本次删去当前文件。
+### Notes
+- scripts/publish-release.mjs：只接受ZCODE_RELEASE_SSH_PASS，不再用仓库硬编码密码。
+- scripts/tests/publishReleaseCredential.test.mjs：回归缺失凭据门禁。
+- docs/selfhost-publish-credential.md：记录运行条件和历史风险边界。
+- progress.md：追加测试与回滚说明。
+回滚：对此条提交使用git revert，但不得恢复旧的静态密码；前一提交0a6ea87。无线上操作。

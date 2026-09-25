@@ -34,7 +34,7 @@ const DIST_DIR = join(repoRoot, "packages/desktop/dist");
 
 const HOST = process.env.ZCODE_RELEASE_HOST ?? "root@182.92.127.90";
 const REMOTE_ROOT = process.env.ZCODE_RELEASE_ROOT ?? "/www/wwwroot/zcode.tang74.top/releases";
-const SSH_PASS = process.env.ZCODE_RELEASE_SSH_PASS ?? "TANGlidong24ban!";
+const SSH_PASS = process.env.ZCODE_RELEASE_SSH_PASS?.trim() ?? "";
 /**
  * 安装包实际托管在 GitHub Releases；服务器只放几百字节的 manifest。
  *
@@ -234,6 +234,8 @@ async function main() {
     return;
   }
 
+  // 发布密钥只来自明确提供的运行时环境；不能从仓库源码回退出服务器密码。
+  if (!SSH_PASS) throw new Error("缺少 ZCODE_RELEASE_SSH_PASS，拒绝发布");
   const sshpass = findSshpass();
   if (!sshpass) {
     throw new Error(
