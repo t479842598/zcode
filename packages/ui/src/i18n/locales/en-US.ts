@@ -1,5 +1,20 @@
 /** English translations */
 const enUS: Record<string, string> = {
+  "settings.officialRelease.title": "Official release updates",
+  "settings.officialRelease.description": "View official versions and release notes only. No download or installation.",
+  "settings.officialRelease.refresh": "Check official version",
+  "settings.officialRelease.localVersion": "Self-hosted version: {version}",
+  "settings.officialRelease.officialVersion": "Official version: {version}",
+  "settings.officialRelease.releaseDate": "Release date: {date}",
+  "settings.officialRelease.checkedAt": "Last checked: {time}",
+  "settings.officialRelease.unknown": "Unable to compare versions; matching numbers do not imply identical builds.",
+  "settings.officialRelease.newer": "A newer official version is available. Updating is your choice.",
+  "settings.officialRelease.same": "Version numbers match, but builds and features may differ.",
+  "settings.officialRelease.older": "Current version is newer than the official stable release.",
+  "settings.officialRelease.noNotes": "No release notes provided.",
+  "settings.officialRelease.source": "View official changelog",
+  "settings.officialRelease.loading": "Checking official version…",
+  "settings.officialRelease.error": "Check failed. Any details above are from the last successful check.",
   "startPlan.recommendation.subagentDescription":
     "Your Start Plan has quota available for {model}. Switch this subagent’s model to the Start Plan?",
   "startPlan.recommendation.preferenceSaveFailed":

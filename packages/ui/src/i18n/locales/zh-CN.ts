@@ -1,5 +1,20 @@
 /** 中文翻译 */
 const zhCN: Record<string, string> = {
+  "settings.officialRelease.title": "官方版本动态",
+  "settings.officialRelease.description": "仅显示官方版本及更新内容，不下载安装或更改自托管更新渠道。",
+  "settings.officialRelease.refresh": "检查官方版本",
+  "settings.officialRelease.localVersion": "自托管版本：{version}",
+  "settings.officialRelease.officialVersion": "官方版本：{version}",
+  "settings.officialRelease.releaseDate": "发布日期：{date}",
+  "settings.officialRelease.checkedAt": "上次检查：{time}",
+  "settings.officialRelease.unknown": "无法比较版本；同号也不代表构建相同。",
+  "settings.officialRelease.newer": "官方有更新版本；由你决定是否更新。",
+  "settings.officialRelease.same": "版本号相同，但构建和功能可能不同。",
+  "settings.officialRelease.older": "当前版本号高于官方公开稳定版。",
+  "settings.officialRelease.noNotes": "该版本未提供更新说明。",
+  "settings.officialRelease.source": "查看官方更新说明",
+  "settings.officialRelease.loading": "正在检查官方版本…",
+  "settings.officialRelease.error": "检查失败；以上如有内容，是上次成功检查的结果。",
   "startPlan.recommendation.subagentDescription":
     "你的体验套餐中，{model} 仍有可用额度，是否将此子智能体的模型切换到体验套餐？",
   "startPlan.recommendation.preferenceSaveFailed": "未能保存“不再提示”，本次仍按你的选择继续。",

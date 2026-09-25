@@ -28,6 +28,7 @@ import {
 import { Button } from "@/components/ui/button.js";
 import { toast } from "@/components/ui/toast.js";
 import { DesktopWindowFrame } from "@/DesktopWindowFrame.js";
+import { OfficialReleaseSection } from "@/settings/OfficialReleaseSection.js";
 import { BackupSettingsSection } from "@/settings/BackupSettingsSection.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { usePlatform } from "@/hooks/usePlatform.js";
@@ -1638,6 +1639,7 @@ export function SettingsPage({
                       </div>
                       <div className="space-y-8">
                         {activeSection === "general" ? (
+                          <>
                           <GeneralSectionContent
                             localePreference={localePreference}
                             interfaceMode={interfaceMode}
@@ -1767,6 +1769,10 @@ export function SettingsPage({
                               })
                             }
                           />
+                          {isDesktop ? (
+                            <OfficialReleaseSection systemService={localHostServices.systemService} />
+                          ) : null}
+                          </>
                         ) : activeSection === "appearance" ? (
                           <AppearanceSectionContent
                             codePreviewSettings={codePreviewSettings}

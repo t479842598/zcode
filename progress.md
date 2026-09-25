@@ -52,3 +52,21 @@
 - docs/selfhost-official-account.md：使用边界、配置与待实机项目。
 - progress.md：记录授权、检查结果与回滚点。
 回滚：对本条所在提交执行git revert。此前版本与刷新补充提交45a13ec；没有改真实用户数据，因此不需要回滚凭据或官方应用。
+
+## 2026-09-25 - Task: 在通用设置中只读显示官方版本更新
+### What was done
+将官方桌面稳定版公开清单与自托管安装更新器分离，通用设置打开时匿名查询版本、日期、中文或英文更新内容，并支持手动刷新；查询失败保留上次成功信息和时间。没有下载、安装、重启、切换自托管 GitHub 更新渠道或操作当前官方应用。
+### Testing
+三项清单服务测试通过：匿名请求/中文说明、空说明及失败、按平台和英文说明；pnpm typecheck 通过、architecture check 0 violations、改动源码 lint 0 error。全仓 lint 仍是既存3101 warnings/1 error（未跟踪的根index.js）。公开来源只读核查 macOS arm64 3.14.3 清单；实际UI可视检查待隔离运行环境。未运行官方客户端或读取真实账号。
+### Notes
+- packages/services/src/system/officialReleaseInfo.ts：匿名公开清单请求、限时及说明解析。
+- packages/services/src/system/system.ts：System服务增加可选只读方法，兼容旧服务实现。
+- packages/services/src/system/systemService.ts：接入官方清单读取。
+- packages/services/tests/official-release-info.test.ts：服务端只读请求与错误处理回归。
+- packages/ui/src/settings/OfficialReleaseSection.tsx：设置显示与手动刷新，不含安装动作。
+- packages/ui/src/SettingsPage.tsx：在通用设置接入本地Host服务组件。
+- packages/ui/src/i18n/locales/zh-CN.ts：新增中文提示。
+- packages/ui/src/i18n/locales/en-US.ts：新增英文提示。
+- docs/selfhost-official-release-view.md：行为、来源、验证与回滚说明。
+- progress.md：追加本轮证据与回滚点。
+回滚：对本条所在提交执行git revert。未部署、未安装，无需生产回滚。

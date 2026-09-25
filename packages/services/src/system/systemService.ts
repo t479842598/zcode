@@ -12,6 +12,7 @@ import type {
   IntranetProbeTcpTargetResult,
   SystemInfo,
 } from "@zcode/shared";
+import { fetchOfficialReleaseInfo } from "./officialReleaseInfo.js";
 import type { ISystemService } from "./system.js";
 import { listIntegratedTerminalShellOptions } from "./integratedTerminalShells.js";
 
@@ -349,6 +350,8 @@ export function createSystemService(options: CreateSystemServiceOptions = {}): I
   const platform = options.platform ?? process.platform;
 
   return {
+    getOfficialReleaseInfo: (locale) => fetchOfficialReleaseInfo({ locale }),
+
     async info(): Promise<SystemInfo> {
       return { homedir: homedir(), platform: process.platform };
     },
