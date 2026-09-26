@@ -24,7 +24,11 @@ function createRewardsContextScript(input: {
   credentials: Record<string, string>;
   provider: "zai" | "bigmodel" | null;
 }): string {
-  const authReady = Boolean(input.credentials["zcodejwttoken"]);
+  const providerCredentialKey =
+    input.provider === "bigmodel" ? "oauth:bigmodel:access_token" : "oauth:zai:access_token";
+  const authReady = Boolean(
+    input.credentials[providerCredentialKey] || input.credentials["zcodejwttoken"],
+  );
   return `(() => {
   const credentials = ${JSON.stringify(input.credentials)};
   for (const key of ${JSON.stringify(REWARD_CREDENTIAL_KEYS)}) localStorage.removeItem(key);
@@ -77,7 +81,15 @@ export function OfficialRewardsSection({
         const credentials = Object.fromEntries(entries.filter(([, value]) => value));
         const activeProvider = (await credentialService.load("oauth:active_provider"))?.trim();
         const provider =
-          activeProvider === "bigmodel" ? "bigmodel" : activeProvider === "zai" ? "zai" : null;
+          activeProvider === "bigmodel"
+            ? "bigmodel"
+            : activeProvider === "zai"
+              ? "zai"
+              : credentials["oauth:zai:access_token"]
+                ? "zai"
+                : credentials["oauth:bigmodel:access_token"]
+                  ? "bigmodel"
+                  : null;
         await webview.executeJavaScript(
           createRewardsContextScript({
             locale: locale === "zh-CN" ? "zh-CN" : "en-US",

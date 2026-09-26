@@ -1,3 +1,4 @@
+import { ZCODE_VERSION } from "@zcode/shared";
 import { useOptionalPlatform } from "@/hooks/usePlatform.js";
 
 const GITHUB_REPOSITORY_URL = "https://github.com/t479842598/Zcode_Full";
@@ -17,8 +18,14 @@ export function ConversationDraftAttribution() {
           className="underline underline-offset-2 hover:text-foreground"
           onClick={() => platform?.openExternal(GITHUB_REPOSITORY_URL)}
         >
-          GitHub：{GITHUB_REPOSITORY_URL}
+          GitHub：{GITHUB_REPOSITORY_URL}（当前）
         </button>
+        <span
+          data-testid="zcode-selfhost-version"
+          className="rounded-full border border-border px-2 py-0.5 font-mono text-[10px] text-foreground-subtle"
+        >
+          v{ZCODE_VERSION}
+        </span>
       </div>
     </div>
   );

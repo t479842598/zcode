@@ -17,6 +17,8 @@ test("official rewards entry stays on the official origin and injects account co
   assert.match(ui, /oauth:zai:access_token/);
   assert.match(ui, /oauth:bigmodel:access_token/);
   assert.match(ui, /zcodejwttoken/);
+  assert.match(ui, /oauth:zai:access_token/);
+  assert.match(ui, /providerCredentialKey/);
   assert.match(ui, /credentialService\.load/);
 });
 

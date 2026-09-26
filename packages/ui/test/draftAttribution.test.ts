@@ -15,5 +15,7 @@ test("草稿欢迎态展示品牌和仓库链接，不出现在已建会话", ()
   assert.match(draft, /<ConversationDraftAttribution\s*\/>/);
   assert.match(attribution, /Zcode_满血_青棠/);
   assert.match(attribution, /github\.com\/t479842598\/Zcode_Full/);
-  assert.doesNotMatch(attribution, /LOCAL_REPOSITORY_PATH|本地仓库|openInFileManager/);
+  assert.match(attribution, /（当前）/);
+  assert.match(attribution, /ZCODE_VERSION/);
+  assert.doesNotMatch(attribution, /LOCAL_REPOSITORY_PATH|openInFileManager/);
 });
