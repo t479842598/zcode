@@ -1641,141 +1641,148 @@ export function SettingsPage({
                       <div className="space-y-8">
                         {activeSection === "general" ? (
                           <>
-                          <GeneralSectionContent
-                            localePreference={localePreference}
-                            interfaceMode={interfaceMode}
-                            setInterfaceMode={setInterfaceMode}
-                            isDesktop={isDesktop}
-                            isWindowsDesktop={isWindowsDesktop}
-                            platform={platform}
-                            notificationEnabled={notificationEnabled}
-                            notificationSoundEnabled={notificationSoundEnabled}
-                            closeToTrayOnWindows={closeToTrayOnWindows}
-                            keepAwakeWhileRunning={sharedSettings?.keepAwakeWhileRunning ?? false}
-                            desktopChromiumHardwareAccelerationEnabled={
-                              desktopChromiumHardwareAccelerationEnabled
-                            }
-                            receivePreviewUpdates={receivePreviewUpdates}
-                            autoDownloadAndInstallUpdates={autoDownloadAndInstallUpdates}
-                            dataBaseDir={dataBaseDir}
-                            terminalInheritSystemProfile={terminalInheritSystemProfile}
-                            terminalFontFamily={terminalFontFamily}
-                            integratedTerminalShell={integratedTerminalShell}
-                            integratedTerminalShellOptions={integratedTerminalShellOptions}
-                            nativeSearchEnhancementsEnabled={nativeSearchEnhancementsEnabled}
-                            httpProxy={httpProxy}
-                            httpProxyNoProxy={httpProxyNoProxy}
-                            httpProxyCaCertPath={httpProxyCaCertPath}
-                            defaultHomeDir={defaultHomeDir}
-                            showIntegratedTerminalShell={hostPlatform === "win32"}
-                            setLocalePreference={handleFooterLocaleChange}
-                            setNotificationEnabled={(enabled) =>
-                              runUserAction({
-                                input: {
-                                  featureId: "settings.notification",
-                                  action: "toggle_notification",
-                                  trigger: "switch",
-                                },
-                                operation: () => setNotificationEnabled(enabled),
-                                completed: {
-                                  resultSource: "local_commit",
-                                  stateAfter: enabled ? "enabled" : "disabled",
-                                },
-                                failureStage: "local_commit",
-                              })
-                            }
-                            setNotificationSoundEnabled={(enabled) =>
-                              runUserAction({
-                                input: {
-                                  featureId: "settings.notification",
-                                  action: "toggle_notification_sound",
-                                  trigger: "switch",
-                                },
-                                operation: () => setNotificationSoundEnabled(enabled),
-                                completed: {
-                                  resultSource: "local_commit",
-                                  stateAfter: enabled ? "enabled" : "disabled",
-                                },
-                                failureStage: "local_commit",
-                              })
-                            }
-                            taskAutoArchiveEnabled={taskAutoArchiveEnabled}
-                            taskAutoArchiveOlderThanDays={taskAutoArchiveOlderThanDays}
-                            messageStreamShowReasoning={messageStreamShowReasoning}
-                            messageStreamShowTodos={messageStreamShowTodos}
-                            toolGroupingExploreEnabled={toolGroupingExploreEnabled}
-                            toolGroupingTerminalEnabled={toolGroupingTerminalEnabled}
-                            toolGroupingChangesEnabled={toolGroupingChangesEnabled}
-                            zcodeInteractionBehavior={zcodeInteractionBehavior}
-                            askUserQuestionAutoResolutionEnabled={
-                              askUserQuestionAutoResolutionEnabled
-                            }
-                            modelIoFullRetentionEnabled={modelIoFullRetentionEnabled}
-                            onDataBaseDirChange={handleDataBaseDirChange}
-                            onSelectDataBaseDir={selectDirectory}
-                            onTerminalInheritSystemProfileChange={
-                              handleTerminalInheritSystemProfileChange
-                            }
-                            onTerminalFontFamilyChange={handleTerminalFontFamilyChange}
-                            onIntegratedTerminalShellChange={handleIntegratedTerminalShellChange}
-                            onNativeSearchEnhancementsEnabledChange={
-                              handleNativeSearchEnhancementsEnabledChange
-                            }
-                            onModelIoFullRetentionEnabledChange={
-                              handleModelIoFullRetentionEnabledChange
-                            }
-                            onHttpProxyChange={handleHttpProxyChange}
-                            onHttpProxyNoProxyChange={handleHttpProxyNoProxyChange}
-                            onHttpProxyCaCertPathChange={handleHttpProxyCaCertPathChange}
-                            onTaskAutoArchiveEnabledChange={handleTaskAutoArchiveEnabledChange}
-                            onTaskAutoArchiveOlderThanDaysChange={
-                              handleTaskAutoArchiveOlderThanDaysChange
-                            }
-                            onCloseToTrayOnWindowsChange={handleCloseToTrayOnWindowsChange}
-                            onKeepAwakeWhileRunningChange={handleKeepAwakeWhileRunningChange}
-                            onDesktopChromiumHardwareAccelerationChange={
-                              handleDesktopChromiumHardwareAccelerationChange
-                            }
-                            onReceivePreviewUpdatesChange={handleReceivePreviewUpdatesChange}
-                            onAutoDownloadAndInstallUpdatesChange={
-                              handleAutoDownloadAndInstallUpdatesChange
-                            }
-                            onMessageStreamShowReasoningChange={
-                              handleMessageStreamShowReasoningChange
-                            }
-                            onMessageStreamShowTodosChange={handleMessageStreamShowTodosChange}
-                            onToolGroupingExploreEnabledChange={
-                              handleToolGroupingExploreEnabledChange
-                            }
-                            onToolGroupingTerminalEnabledChange={
-                              handleToolGroupingTerminalEnabledChange
-                            }
-                            onToolGroupingChangesEnabledChange={
-                              handleToolGroupingChangesEnabledChange
-                            }
-                            onZCodeInteractionBehaviorChange={handleZCodeInteractionBehaviorChange}
-                            onAskUserQuestionAutoResolutionEnabledChange={
-                              handleAskUserQuestionAutoResolutionEnabledChange
-                            }
-                            onOpenOnboardingDialog={() =>
-                              runUserAction({
-                                input: {
-                                  featureId: "settings.navigation",
-                                  action: "open_onboarding",
-                                  trigger: "button",
-                                },
-                                operation: requestOnboardingDialog,
-                                completed: { resultSource: "local_commit" },
-                                failureStage: "dialog_open",
-                              })
-                            }
-                          />
-                          {isDesktop ? (
-                            <>
-                              <OfficialReleaseSection systemService={localHostServices.systemService} />
-                              <OfficialRewardsSection credentialService={localHostServices.credentialService} />
-                            </>
-                          ) : null}
+                            <GeneralSectionContent
+                              localePreference={localePreference}
+                              interfaceMode={interfaceMode}
+                              setInterfaceMode={setInterfaceMode}
+                              isDesktop={isDesktop}
+                              isWindowsDesktop={isWindowsDesktop}
+                              platform={platform}
+                              notificationEnabled={notificationEnabled}
+                              notificationSoundEnabled={notificationSoundEnabled}
+                              closeToTrayOnWindows={closeToTrayOnWindows}
+                              keepAwakeWhileRunning={sharedSettings?.keepAwakeWhileRunning ?? false}
+                              desktopChromiumHardwareAccelerationEnabled={
+                                desktopChromiumHardwareAccelerationEnabled
+                              }
+                              receivePreviewUpdates={receivePreviewUpdates}
+                              autoDownloadAndInstallUpdates={autoDownloadAndInstallUpdates}
+                              dataBaseDir={dataBaseDir}
+                              terminalInheritSystemProfile={terminalInheritSystemProfile}
+                              terminalFontFamily={terminalFontFamily}
+                              integratedTerminalShell={integratedTerminalShell}
+                              integratedTerminalShellOptions={integratedTerminalShellOptions}
+                              nativeSearchEnhancementsEnabled={nativeSearchEnhancementsEnabled}
+                              httpProxy={httpProxy}
+                              httpProxyNoProxy={httpProxyNoProxy}
+                              httpProxyCaCertPath={httpProxyCaCertPath}
+                              defaultHomeDir={defaultHomeDir}
+                              showIntegratedTerminalShell={hostPlatform === "win32"}
+                              setLocalePreference={handleFooterLocaleChange}
+                              setNotificationEnabled={(enabled) =>
+                                runUserAction({
+                                  input: {
+                                    featureId: "settings.notification",
+                                    action: "toggle_notification",
+                                    trigger: "switch",
+                                  },
+                                  operation: () => setNotificationEnabled(enabled),
+                                  completed: {
+                                    resultSource: "local_commit",
+                                    stateAfter: enabled ? "enabled" : "disabled",
+                                  },
+                                  failureStage: "local_commit",
+                                })
+                              }
+                              setNotificationSoundEnabled={(enabled) =>
+                                runUserAction({
+                                  input: {
+                                    featureId: "settings.notification",
+                                    action: "toggle_notification_sound",
+                                    trigger: "switch",
+                                  },
+                                  operation: () => setNotificationSoundEnabled(enabled),
+                                  completed: {
+                                    resultSource: "local_commit",
+                                    stateAfter: enabled ? "enabled" : "disabled",
+                                  },
+                                  failureStage: "local_commit",
+                                })
+                              }
+                              taskAutoArchiveEnabled={taskAutoArchiveEnabled}
+                              taskAutoArchiveOlderThanDays={taskAutoArchiveOlderThanDays}
+                              messageStreamShowReasoning={messageStreamShowReasoning}
+                              messageStreamShowTodos={messageStreamShowTodos}
+                              toolGroupingExploreEnabled={toolGroupingExploreEnabled}
+                              toolGroupingTerminalEnabled={toolGroupingTerminalEnabled}
+                              toolGroupingChangesEnabled={toolGroupingChangesEnabled}
+                              zcodeInteractionBehavior={zcodeInteractionBehavior}
+                              askUserQuestionAutoResolutionEnabled={
+                                askUserQuestionAutoResolutionEnabled
+                              }
+                              modelIoFullRetentionEnabled={modelIoFullRetentionEnabled}
+                              onDataBaseDirChange={handleDataBaseDirChange}
+                              onSelectDataBaseDir={selectDirectory}
+                              onTerminalInheritSystemProfileChange={
+                                handleTerminalInheritSystemProfileChange
+                              }
+                              onTerminalFontFamilyChange={handleTerminalFontFamilyChange}
+                              onIntegratedTerminalShellChange={handleIntegratedTerminalShellChange}
+                              onNativeSearchEnhancementsEnabledChange={
+                                handleNativeSearchEnhancementsEnabledChange
+                              }
+                              onModelIoFullRetentionEnabledChange={
+                                handleModelIoFullRetentionEnabledChange
+                              }
+                              onHttpProxyChange={handleHttpProxyChange}
+                              onHttpProxyNoProxyChange={handleHttpProxyNoProxyChange}
+                              onHttpProxyCaCertPathChange={handleHttpProxyCaCertPathChange}
+                              onTaskAutoArchiveEnabledChange={handleTaskAutoArchiveEnabledChange}
+                              onTaskAutoArchiveOlderThanDaysChange={
+                                handleTaskAutoArchiveOlderThanDaysChange
+                              }
+                              onCloseToTrayOnWindowsChange={handleCloseToTrayOnWindowsChange}
+                              onKeepAwakeWhileRunningChange={handleKeepAwakeWhileRunningChange}
+                              onDesktopChromiumHardwareAccelerationChange={
+                                handleDesktopChromiumHardwareAccelerationChange
+                              }
+                              onReceivePreviewUpdatesChange={handleReceivePreviewUpdatesChange}
+                              onAutoDownloadAndInstallUpdatesChange={
+                                handleAutoDownloadAndInstallUpdatesChange
+                              }
+                              onMessageStreamShowReasoningChange={
+                                handleMessageStreamShowReasoningChange
+                              }
+                              onMessageStreamShowTodosChange={handleMessageStreamShowTodosChange}
+                              onToolGroupingExploreEnabledChange={
+                                handleToolGroupingExploreEnabledChange
+                              }
+                              onToolGroupingTerminalEnabledChange={
+                                handleToolGroupingTerminalEnabledChange
+                              }
+                              onToolGroupingChangesEnabledChange={
+                                handleToolGroupingChangesEnabledChange
+                              }
+                              onZCodeInteractionBehaviorChange={
+                                handleZCodeInteractionBehaviorChange
+                              }
+                              onAskUserQuestionAutoResolutionEnabledChange={
+                                handleAskUserQuestionAutoResolutionEnabledChange
+                              }
+                              onOpenOnboardingDialog={() =>
+                                runUserAction({
+                                  input: {
+                                    featureId: "settings.navigation",
+                                    action: "open_onboarding",
+                                    trigger: "button",
+                                  },
+                                  operation: requestOnboardingDialog,
+                                  completed: { resultSource: "local_commit" },
+                                  failureStage: "dialog_open",
+                                })
+                              }
+                            />
+                            {isDesktop ? (
+                              <>
+                                <OfficialReleaseSection
+                                  systemService={localHostServices.systemService}
+                                />
+                                <OfficialRewardsSection
+                                  credentialService={localHostServices.credentialService}
+                                  oauthService={localHostServices.oauthService}
+                                />
+                              </>
+                            ) : null}
                           </>
                         ) : activeSection === "appearance" ? (
                           <AppearanceSectionContent

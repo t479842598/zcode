@@ -1,7 +1,7 @@
 import { useCallback, useMemo, useRef, useState } from "react";
 import { ExternalLinkIcon, RefreshCwIcon, XIcon } from "lucide-react";
 import { buildZCodeRewardsUrl, ZCODE_VERSION } from "@zcode/shared";
-import type { ICredentialService } from "@zcode/services";
+import type { ICredentialService, IOAuthService } from "@zcode/services";
 import { Button } from "@/components/ui/button.js";
 import { EmbeddedWebsiteHeader } from "@/components/EmbeddedWebsiteHeader.js";
 import { usePlatform } from "@/hooks/usePlatform.js";
@@ -23,11 +23,13 @@ function createRewardsContextScript(input: {
   theme: RewardTheme;
   credentials: Record<string, string>;
   provider: "zai" | "bigmodel" | null;
+  userId: string | null;
 }): string {
   const providerCredentialKey =
     input.provider === "bigmodel" ? "oauth:bigmodel:access_token" : "oauth:zai:access_token";
   const authReady = Boolean(
-    input.credentials[providerCredentialKey] || input.credentials["zcodejwttoken"],
+    input.userId &&
+    (input.credentials[providerCredentialKey] || input.credentials["zcodejwttoken"]),
   );
   return `(() => {
   const credentials = ${JSON.stringify(input.credentials)};
@@ -54,12 +56,15 @@ function createRewardsCredentialClearScript(): string {
 
 export function OfficialRewardsSection({
   credentialService,
+  oauthService,
 }: {
   credentialService: Pick<ICredentialService, "load">;
+  oauthService: Pick<IOAuthService, "getActiveProvider">;
 }) {
   const { intl, locale } = useZCodeIntl();
   const platform = usePlatform();
   const theme = useZCodeStoreWithDefault((state) => state.theme, "zai-dark") as RewardTheme;
+  const userId = useZCodeStoreWithDefault((state) => state.user?.id ?? null, null);
   const [open, setOpen] = useState(false);
   const [loading, setLoading] = useState(false);
   const webviewRef = useRef<ElectronWebviewTag | null>(null);
@@ -73,29 +78,28 @@ export function OfficialRewardsSection({
       if (!webview) return;
       setLoading(true);
       try {
-        const entries = await Promise.all(
-          REWARD_CREDENTIAL_KEYS.map(
-            async (key) => [key, (await credentialService.load(key))?.trim() ?? ""] as const,
-          ),
-        );
-        const credentials = Object.fromEntries(entries.filter(([, value]) => value));
-        const activeProvider = (await credentialService.load("oauth:active_provider"))?.trim();
+        const activeProvider = userId ? await oauthService.getActiveProvider() : null;
         const provider =
-          activeProvider === "bigmodel"
-            ? "bigmodel"
-            : activeProvider === "zai"
-              ? "zai"
-              : credentials["oauth:zai:access_token"]
-                ? "zai"
-                : credentials["oauth:bigmodel:access_token"]
-                  ? "bigmodel"
-                  : null;
+          activeProvider === "bigmodel" ? "bigmodel" : activeProvider === "zai" ? "zai" : null;
+        const [accessToken, zcodeJwtToken] = provider
+          ? await Promise.all([
+              credentialService.load(`oauth:${provider}:access_token`),
+              credentialService.load("zcodejwttoken"),
+            ])
+          : [null, null];
+        const credentials = Object.fromEntries(
+          [
+            [`oauth:${provider}:access_token`, accessToken?.trim() ?? ""],
+            ["zcodejwttoken", zcodeJwtToken?.trim() ?? ""],
+          ].filter(([, value]) => value),
+        );
         await webview.executeJavaScript(
           createRewardsContextScript({
             locale: locale === "zh-CN" ? "zh-CN" : "en-US",
             theme,
             credentials,
             provider,
+            userId,
           }),
           true,
         );
@@ -103,7 +107,7 @@ export function OfficialRewardsSection({
         setLoading(false);
       }
     },
-    [credentialService, locale, theme],
+    [credentialService, locale, oauthService, theme, userId],
   );
 
   const close = useCallback(() => {
