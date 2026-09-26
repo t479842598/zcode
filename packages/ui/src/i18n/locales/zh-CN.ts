@@ -1,7 +1,16 @@
 /** 中文翻译 */
 const zhCN: Record<string, string> = {
+  "settings.officialRewards.title": "官方活动额度",
+  "settings.officialRewards.description":
+    "打开官方活动页面，使用当前账号查询并领取官方赠送额度。额度由官方服务端决定。",
+  "settings.officialRewards.open": "打开活动页面",
+  "settings.officialRewards.version": "当前客户端版本：{version}",
+  "settings.officialRewards.reload": "刷新活动页面",
+  "settings.officialRewards.external": "在浏览器打开",
+  "settings.officialRewards.close": "关闭活动页面",
   "settings.officialRelease.title": "官方版本动态",
-  "settings.officialRelease.description": "仅显示官方版本及更新内容，不下载安装或更改自托管更新渠道。",
+  "settings.officialRelease.description":
+    "仅显示官方版本及更新内容，不下载安装或更改自托管更新渠道。",
   "settings.officialRelease.refresh": "检查官方版本",
   "settings.officialRelease.localVersion": "自托管版本：{version}",
   "settings.officialRelease.officialVersion": "官方版本：{version}",

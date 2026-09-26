@@ -14,6 +14,7 @@ import {
   desktopMenuMessageIds,
   getDesktopMenuMessage,
   isTrustedCodingPlanWebviewOrigin,
+  isTrustedRewardsWebviewOrigin,
   resolveZaiBusinessBaseUrl,
   PlatformChannels,
 } from "@zcode/shared";
@@ -55,12 +56,27 @@ const embeddedBrowserJavaScriptDialogPreloadPath = join(
 );
 // Coding Plan 官网页专用 preload：挂 window.zcodeBridge 供官网回传购买完成信号。
 const codingPlanWebviewPreloadPath = join(import.meta.dirname, "../preload/codingPlanWebview.cjs");
+const rewardsWebviewPreloadPath = join(import.meta.dirname, "../preload/rewardsWebview.cjs");
 
 /**
  * 判断 webview 是否加载 Coding Plan 官网购买页（/coding-plan?...&embedded=app）。
  * 用于在 will-attach-webview 里把这种 webview 的 preload 切到 codingPlanWebviewPreloadPath，
  * 其余 webview（如内置浏览器）仍用 embeddedBrowserJavaScriptDialogPreloadPath。
  */
+function isRewardsEmbeddedWebviewSrc(src: string | undefined): boolean {
+  if (!src) return false;
+  try {
+    const url = new URL(src);
+    return (
+      isTrustedRewardsWebviewOrigin(url.origin) &&
+      /^\/(cn|en)\/rewards\/?$/u.test(url.pathname) &&
+      url.searchParams.get("embedded") === "app"
+    );
+  } catch {
+    return false;
+  }
+}
+
 function isCodingPlanEmbeddedWebviewSrc(src: string | undefined): boolean {
   if (!src) return false;
   try {
@@ -612,7 +628,7 @@ export function createBrowserWindow(options: {
   win.on("maximize", () => syncDesktopWindowChromeState(win));
   win.on("unmaximize", () => syncDesktopWindowChromeState(win));
   attachWindowsWindowRepaint(win);
-  const pendingWebviewCodingPlanGuestFlags: boolean[] = [];
+  const pendingWebviewGuestKinds: Array<"coding-plan" | "rewards" | "browser"> = [];
 
   win.webContents.once("did-finish-load", () => {
     // 生产包使用 loadFile(file://...) 导航时，Chromium 可能在页面加载完成后重放
@@ -646,9 +662,12 @@ export function createBrowserWindow(options: {
     // 改用专用 preload（codingPlanWebview.ts），其余 webview 保持原生 Dialog 桥。
     const targetUrl = params.src ?? "about:blank";
     const isCodingPlanWebview = isCodingPlanEmbeddedWebviewSrc(targetUrl);
+    const isRewardsWebview = isRewardsEmbeddedWebviewSrc(targetUrl);
     webPreferences.preload = isCodingPlanWebview
       ? codingPlanWebviewPreloadPath
-      : embeddedBrowserJavaScriptDialogPreloadPath;
+      : isRewardsWebview
+        ? rewardsWebviewPreloadPath
+        : embeddedBrowserJavaScriptDialogPreloadPath;
     webPreferences.contextIsolation = true;
     webPreferences.nodeIntegration = false;
     webPreferences.nodeIntegrationInSubFrames = true;
@@ -675,7 +694,9 @@ export function createBrowserWindow(options: {
       return;
     }
 
-    pendingWebviewCodingPlanGuestFlags.push(isCodingPlanWebview);
+    pendingWebviewGuestKinds.push(
+      isCodingPlanWebview ? "coding-plan" : isRewardsWebview ? "rewards" : "browser",
+    );
   });
 
   win.webContents.on("did-attach-webview", (_event, guestWebContents) => {
@@ -685,7 +706,7 @@ export function createBrowserWindow(options: {
       resolveBrowserViewOwner: options.resolveBrowserViewOwner,
       // PayPal/relay 的 30x 重定向不保证逐跳触发 will-navigate。
       // Coding Plan guest 身份必须按初始 src 粘住，不能由当前 URL 解防护。
-      isCodingPlanGuest: pendingWebviewCodingPlanGuestFlags.shift() ?? false,
+      isCodingPlanGuest: pendingWebviewGuestKinds.shift() === "coding-plan",
       logger: options.logger,
     });
   });

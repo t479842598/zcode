@@ -29,6 +29,7 @@ import { Button } from "@/components/ui/button.js";
 import { toast } from "@/components/ui/toast.js";
 import { DesktopWindowFrame } from "@/DesktopWindowFrame.js";
 import { OfficialReleaseSection } from "@/settings/OfficialReleaseSection.js";
+import { OfficialRewardsSection } from "@/settings/OfficialRewardsSection.js";
 import { BackupSettingsSection } from "@/settings/BackupSettingsSection.js";
 import { useZCodeIntl } from "@/i18n/IntlProvider.js";
 import { usePlatform } from "@/hooks/usePlatform.js";
@@ -1770,7 +1771,10 @@ export function SettingsPage({
                             }
                           />
                           {isDesktop ? (
-                            <OfficialReleaseSection systemService={localHostServices.systemService} />
+                            <>
+                              <OfficialReleaseSection systemService={localHostServices.systemService} />
+                              <OfficialRewardsSection credentialService={localHostServices.credentialService} />
+                            </>
                           ) : null}
                           </>
                         ) : activeSection === "appearance" ? (

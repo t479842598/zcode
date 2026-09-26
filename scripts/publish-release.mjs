@@ -42,7 +42,7 @@ const SSH_PASS = process.env.ZCODE_RELEASE_SSH_PASS?.trim() ?? "";
  * GitHub 走系统代理实测 ~10 MB/s（17 秒）。而「检测更新」只有一个几百字节的请求，
  * 放自建服务器更快更稳，所以拆开：**清单走自建，安装包走 GitHub**。
  */
-const GITHUB_REPO = process.env.ZCODE_RELEASE_GITHUB_REPO ?? "t479842598/zcode";
+const GITHUB_REPO = process.env.ZCODE_RELEASE_GITHUB_REPO ?? "t479842598/Zcode_Full";
 /** 默认不再往服务器传安装包（只传 manifest）；置 1 可回退到旧行为 */
 const UPLOAD_INSTALLERS = process.env.ZCODE_RELEASE_UPLOAD_INSTALLERS === "1";
 
